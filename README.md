@@ -86,7 +86,7 @@ RWS+BRoCJslNCFapck3cbG2VFQcjlr1MUH5m3+CWA8zhJecoBoja7X94
 Check a download with:
 
 ```
-minisign -Vm horizonmatica-0.3.2.hnmod -P RWS+BRoCJslNCFapck3cbG2VFQcjlr1MUH5m3+CWA8zhJecoBoja7X94
+minisign -Vm horizonmatica-0.3.3.hnmod -P RWS+BRoCJslNCFapck3cbG2VFQcjlr1MUH5m3+CWA8zhJecoBoja7X94
 ```
 
 ## Usage
