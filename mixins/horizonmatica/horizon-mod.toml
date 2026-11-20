@@ -1,6 +1,6 @@
 id = "horizonmatica"
 name = "Horizonmatica"
-version = "0.3.5"
+version = "0.3.6"
 description = "Schematic overlays, verifier, material lists and automatic placement."
 license = "MIT"
 api = "0.2"

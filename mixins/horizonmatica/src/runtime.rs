@@ -542,7 +542,7 @@ fn load_settings(game: &Game<'_>, s: &mut State) {
     }
     s.settings_loaded = true;
     let m = menu();
-    let st = &menus::GameStore { game, id: ID };
+    let st = &menus::GameStore { game };
     let d = Settings::default();
     s.settings = Settings {
         render: m.bool(st, "render"),
@@ -550,9 +550,9 @@ fn load_settings(game: &Game<'_>, s: &mut State) {
         mode: if m.choice(st, "mode") == "boxes" { Mode::Boxes } else { Mode::Ghost },
         alpha: m.number(st, "alpha") as f32,
         // Read as written: `/hm radius` and `/hm faces` go past the menu's choices.
-        radius: game.setting(ID, "radius").and_then(|v| v.trim().parse::<f64>().ok()).map_or(d.radius, |v| (v as i32).max(16)),
+        radius: menus::read_setting(game, "radius").and_then(|v| v.trim().parse::<f64>().ok()).map_or(d.radius, |v| (v as i32).max(16)),
         radius_view: m.bool(st, "radius_view"),
-        max_faces: game.setting(ID, "max_faces").and_then(|v| parse_faces(&v)).unwrap_or(d.max_faces),
+        max_faces: menus::read_setting(game, "max_faces").and_then(|v| parse_faces(&v)).unwrap_or(d.max_faces),
         hide_fluids: m.bool(st, "hide_fluids"),
         show_extra: m.bool(st, "show_extra"),
         show_wrong: m.bool(st, "show_wrong"),
@@ -639,7 +639,7 @@ fn render_radius(game: &Game<'_>, st: &Settings) -> i32 {
 
 /// Writes `s` in the menu's format (commands change settings too).
 fn save_settings(game: &Game<'_>, s: &Settings) {
-    let set = |k: &str, v: String| game.set_setting(ID, k, &v);
+    let set = |k: &str, v: String| menus::write_setting(game, k, &v);
     set("render", s.render.to_string());
     set("through", s.through.to_string());
     set("mode", if s.mode == Mode::Boxes { "boxes" } else { "ghost" }.into());
@@ -700,10 +700,10 @@ fn save_placements(game: &Game<'_>) {
         (last, world)
     });
     if let Some(last) = last {
-        game.set_setting(ID, "last", &last);
+        menus::write_setting(game, "last", &last);
     }
     if let Some(key) = world_key(game) {
-        game.set_setting(ID, &key, &world);
+        menus::write_setting(game, &key, &world);
     }
 }
 
@@ -771,7 +771,7 @@ fn restore_step(game: &mut Game<'_>) {
         s.area = [None; 2];
     });
     bridge::clear();
-    let Some(saved) = game.setting(ID, &key) else { return };
+    let Some(saved) = menus::read_setting(game, &key) else { return };
     let (selected, entries) = parse_world(&saved);
     if entries.is_empty() {
         return;
@@ -1653,7 +1653,7 @@ fn run(game: &mut Game<'_>, args: &[&str]) -> Result<Vec<String>, String> {
             load(game, &rest.join(" "), None)
         }
         "reload" => {
-            let last = game.setting(ID, "last").ok_or("nothing loaded before")?;
+            let last = menus::read_setting(game, "last").ok_or("nothing loaded before")?;
             let (file, at) = parse_saved(&last).ok_or("the saved placement is unreadable")?;
             start_load(game, vec![(file, at)], Then::Reload)
         }
@@ -2124,7 +2124,7 @@ fn ensure_binds(game: &Game<'_>, s: &mut State) {
         BINDS
             .iter()
             .map(|(id, _, default)| {
-                let key = game.setting(ID, &bind_file(id)).unwrap_or_else(|| {
+                let key = menus::read_setting(game, &bind_file(id)).unwrap_or_else(|| {
                     game.mod_key(ID, id)
                         .map_or_else(|| String::from(*default), |(key, _)| key)
                 });
@@ -2165,7 +2165,7 @@ fn set_bind(game: &Game<'_>, id: &str, key: &str) {
     });
     for i in changed {
         let value = key_of(game, &i);
-        game.set_setting(ID, &bind_file(&i), &value);
+        menus::write_setting(game, &bind_file(&i), &value);
     }
 }
 
@@ -5119,7 +5119,7 @@ fn tab_placement(game: &mut Game<'_>, ui: &mut menus::Ui<'_>, r: menus::Rect) {
     }
     let by = r[1] + r[3] - 20.0;
     let event = {
-        let mut store = menus::GameStore { game: &*game, id: ID };
+        let mut store = menus::GameStore { game };
         ui.settings(game, menu(), "easy_place", &mut store, [r[0], by - 72.0, lw, 0.0], 1).0
     };
     if event != menus::Event::None {
@@ -5461,7 +5461,7 @@ fn tab_tool(game: &mut Game<'_>, ui: &mut menus::Ui<'_>, r: menus::Rect) {
     }
     y += size + 10.0;
     let (event, _) = {
-        let mut store = menus::GameStore { game: &*game, id: ID };
+        let mut store = menus::GameStore { game };
         ui.settings(game, menu(), "selection", &mut store, [r[0], y, r[2], 0.0], 2)
     };
     match event {
@@ -5530,7 +5530,7 @@ fn tab_printer(game: &mut Game<'_>, ui: &mut menus::Ui<'_>, r: menus::Rect) {
     }
     y += 16.0;
     let event = {
-        let mut store = menus::GameStore { game: &*game, id: ID };
+        let mut store = menus::GameStore { game };
         ui.settings(game, menu(), "printer", &mut store, [r[0], y, r[2], 0.0], 2).0
     };
     if event != menus::Event::None {
@@ -5563,7 +5563,7 @@ fn tab_display(game: &mut Game<'_>, ui: &mut menus::Ui<'_>, r: menus::Rect) {
         ui.text(game, r[0], y + 2.0, title, 0xFFFFFF);
         y += 13.0;
         let (event, used) = {
-            let mut store = menus::GameStore { game: &*game, id: ID };
+            let mut store = menus::GameStore { game };
             ui.settings(game, menu(), page, &mut store, [r[0], y, r[2], 0.0], 2)
         };
         events.push(event);

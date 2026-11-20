@@ -1,7 +1,7 @@
 // Horizonmatica's adaptation of horizon-menus' game-side screen. It uses Horizon widgets and
 // takes the place of the Debug Options screen while open, without pausing the game.
 
-use super::{Game, Screen};
+use super::{Game, Screen, horizonmatica::ID};
 use horizon_client::hud::{HudBatch, rgba};
 use horizon_client::text::Text;
 use horizon_client::ui::{self, EditBox};
@@ -10,24 +10,54 @@ use horizon_client::ui::{self, EditBox};
 pub(crate) use mod_horizonmatica::menus::{Control, Entry, Event, Menu, Nav, Setting, Store};
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::{fs, path::PathBuf};
 use std::ops::ControlFlow;
 use winit::event::{ElementState, KeyEvent};
 use winit::keyboard::{KeyCode, PhysicalKey};
 
 // ---------------------------------------------------------------- settings store
 
-/// Horizon's persisted settings for mod `id`.
+/// Keep the existing per-key settings files, including private settings that Horizon's
+/// registrar cannot describe, such as the saved placements for individual worlds.
 pub(super) struct GameStore<'a, 'g> {
     pub(super) game: &'a Game<'g>,
-    pub(super) id: &'a str,
 }
 
 impl Store for GameStore<'_, '_> {
     fn get(&self, key: &str) -> Option<String> {
-        self.game.setting(self.id, key)
+        read_setting(self.game, key)
     }
+
     fn set(&mut self, key: &str, value: &str) {
-        self.game.set_setting(self.id, key, value);
+        write_setting(self.game, key, value);
+    }
+}
+
+fn private_setting_dir(game: &Game<'_>, key: &str) -> Option<PathBuf> {
+    let valid = !key.is_empty()
+        && !key.starts_with('.')
+        && key.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b));
+    valid.then(|| game.native_data_dir(ID))
+}
+
+pub(super) fn read_setting(game: &Game<'_>, key: &str) -> Option<String> {
+    if key == "render" {
+        return game.setting(ID, key);
+    }
+    let dir = private_setting_dir(game, key)?;
+    horizon_world::native_load_context::read_setting(&dir, key)
+}
+
+pub(super) fn write_setting(game: &Game<'_>, key: &str, value: &str) {
+    // Use Horizon's setting API for the overlay toggle registered with the platform.
+    if key == "render" {
+        game.set_setting(ID, key, value);
+        return;
+    }
+    if let Some(dir) = private_setting_dir(game, key)
+        && let Err(error) = fs::create_dir_all(&dir).and_then(|()| fs::write(dir.join(key), value))
+    {
+        log::warn!("Horizonmatica could not save setting {key}: {error}");
     }
 }
 
