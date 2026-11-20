@@ -59,7 +59,7 @@ building them.
 
 1. Install **Horizon Nightly 2026-11-20** (`0a875da`) in the Horizon launcher.
 2. Download a release `.hmod`, or run `python3 tools/package.py` (Python 3.11+) from this repository
-   to produce `dist/horizonmatica-0.3.4.hmod`.
+   to produce `dist/horizonmatica-0.3.5.hmod`.
 3. In the instance's **Mods** tab, add the `.hmod`, enable the mod, then build and start the instance.
    To build from the source folder instead, use:
 
@@ -82,7 +82,7 @@ RWS+BRoCJslNCFapck3cbG2VFQcjlr1MUH5m3+CWA8zhJecoBoja7X94
 Check a download with:
 
 ```
-minisign -Vm horizonmatica-0.3.4.hmod -P RWS+BRoCJslNCFapck3cbG2VFQcjlr1MUH5m3+CWA8zhJecoBoja7X94
+minisign -Vm horizonmatica-0.3.5.hmod -P RWS+BRoCJslNCFapck3cbG2VFQcjlr1MUH5m3+CWA8zhJecoBoja7X94
 ```
 
 ## Usage
@@ -239,6 +239,9 @@ tooltips, item icons) by [horizon-menus](libs/horizon-menus/README.md). The game
 | Display | Overlay and HUD settings (opacity, render radius or view distance, face limit, water and lava), and what the overlay holds right now |
 | Materials | Material list with item icons: missing, total, carried; copy it for a spreadsheet; the HUD list on/off |
 | Keys | Every action with its key: click one and press the new key, or reset them all |
+
+You can also open this menu from **Options › Mods › Horizonmatica › Configure**. Done returns
+you to the Mods list.
 
 Under the hood the screen borrows the place of the Debug Options screen (F3+F6): its draw and input functions are
 hooked and do nothing of their own while the game hasn't opened that screen itself, and the game doesn't pause for it.

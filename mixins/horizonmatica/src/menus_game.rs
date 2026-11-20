@@ -42,6 +42,7 @@ fn reverse(game: &Game<'_>) -> bool {
 #[derive(Default)]
 struct State {
     open: bool,
+    return_to_mods: bool,
     presses: Vec<(f32, f32)>,
     mouse_down: bool,
     released: bool,
@@ -67,6 +68,7 @@ pub(super) fn is_open(game: &Game<'_>) -> bool {
     st(|s| {
         if s.open && game.screen != Screen::DebugOptions {
             s.open = false;
+            s.return_to_mods = false;
         }
         s.open
     })
@@ -79,13 +81,35 @@ pub(super) fn open_screen(game: &mut Game<'_>) -> bool {
     if game.title.is_some() || game.screen != Screen::Playing {
         return false;
     }
+    enter_screen(game, false)
+}
+
+/// Opens the full Horizonmatica menu from its Configure button, including on the title screen.
+pub(super) fn open_from_mods(game: &mut Game<'_>, index: usize) {
+    use horizon_client::options_ui::Page;
+
+    if game.screen == Screen::Options
+        && game.ui.options.page() == Page::NativeMod(index)
+        && game.settings.mods.installed.get(index).is_some_and(|mod_row| {
+            mod_row.id == super::horizonmatica::ID && mod_row.native.is_some()
+        })
+    {
+        enter_screen(game, true);
+    }
+}
+
+fn enter_screen(game: &mut Game<'_>, return_to_mods: bool) -> bool {
+    game.set_screen(Screen::DebugOptions);
+    if game.screen != Screen::DebugOptions {
+        return false;
+    }
     game.debug_options = None;
-    game.screen = Screen::DebugOptions;
     game.capture(false);
     game.mining = None;
     game.keys.clear();
     st(|s| {
         s.open = true;
+        s.return_to_mods = return_to_mods;
         s.presses.clear();
         s.mouse_down = false;
         s.released = false;
@@ -97,24 +121,31 @@ pub(super) fn open_screen(game: &mut Game<'_>) -> bool {
     true
 }
 
-/// Closes the screen: back to playing.
+/// Closes the menu and returns to its entry screen.
 #[allow(dead_code)]
 pub(super) fn close_screen(game: &mut Game<'_>) {
     if is_open(game) {
-        // The game's own close: playing, the mouse captured again (and `hook_close`).
         game.close_debug_options();
     }
     st(|s| s.open = false);
 }
 
-/// `close_debug_options` (Esc, F3+F6): the screen is gone.
-#[allow(dead_code)]
-pub(super) fn hook_close(_game: &mut Game<'_>) {
-    st(|s| {
+/// Returns to Mods when Configure opened this menu. Otherwise Horizon closes its screen normally.
+pub(super) fn hook_close(game: &mut Game<'_>) -> ControlFlow<()> {
+    use horizon_client::options_ui::Page;
+
+    let return_to_mods = st(|s| {
         s.open = false;
         s.focus = None;
         s.held = None;
+        std::mem::take(&mut s.return_to_mods)
     });
+    if return_to_mods {
+        game.open_options_at(game.options_from_title, Page::Main);
+        game.ui.options.show(Page::Mods);
+        return ControlFlow::Break(());
+    }
+    ControlFlow::Continue(())
 }
 
 /// A left press on the screen, at the pointer.

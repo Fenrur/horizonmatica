@@ -32,6 +32,10 @@ def main() -> None:
         if "target" not in rel.parts and path.is_file() and path.suffix in (".rs", ".toml"):
             entries[rel.as_posix()] = path
 
+    for path in (BUNDLE / "assets").rglob("*"):
+        if path.is_file():
+            entries[path.relative_to(BUNDLE).as_posix()] = path
+
     # Keep names, order, permissions and timestamps stable across builds.
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as archive:
         for name, path in sorted(entries.items()):

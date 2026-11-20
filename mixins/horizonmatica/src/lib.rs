@@ -3,7 +3,7 @@ use std::sync::OnceLock;
 
 pub use horizonmatica_core as core;
 pub use horizonmatica_menus as menus;
-use mod_api::Hooks;
+use mod_api::{Hooks, Registrar, RegistrationContext, SettingSpec};
 
 static DRAW: OnceLock<Box<dyn Any + Send + Sync>> = OnceLock::new();
 
@@ -21,4 +21,15 @@ pub fn draw_callback<T: Any>() -> Option<&'static T> {
 struct Horizonmatica;
 
 #[mod_api::horizon_mod]
-impl Hooks for Horizonmatica {}
+impl Hooks for Horizonmatica {
+    fn register(&self, registrar: &mut dyn Registrar, _: &RegistrationContext) {
+        // Horizon enables the Config button only for mods with a registered setting.
+        registrar
+            .register_setting(SettingSpec::toggle(
+                "render",
+                "horizonmatica.settings.render",
+                true,
+            ))
+            .expect("valid Horizonmatica overlay setting");
+    }
+}

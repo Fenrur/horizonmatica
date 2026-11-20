@@ -1,6 +1,6 @@
 id = "horizonmatica"
 name = "Horizonmatica"
-version = "0.3.4"
+version = "0.3.5"
 description = "Schematic overlays, verifier, material lists and automatic placement."
 license = "MIT"
 api = "0.2"
@@ -196,6 +196,7 @@ bindings = [
 id = "menus_screen_close"
 target = "horizon_client::game::debug_options::Game<'_>::close_debug_options"
 kind = "HEAD"
+cancellable = true
 helper = "src/menus_screen_close.rs"
 bindings = [
     { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
@@ -209,4 +210,15 @@ cancellable = true
 helper = "src/menus_screen_pauses.rs"
 bindings = [
     { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+]
+
+
+[[native.mixin]]
+id = "menus_configure"
+target = "horizon_client::game::native_hooks::Game<'_>::native_settings_refresh"
+kind = "HEAD"
+helper = "src/menus_configure.rs"
+bindings = [
+    { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+    { name = "index", ty = "usize", value = "i" },
 ]
