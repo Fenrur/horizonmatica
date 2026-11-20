@@ -78,6 +78,7 @@ struct State {
     released: bool,
     wheel: f32,
     keys: Vec<KeyCode>,
+    submitted_edit: Option<String>,
     held: Option<String>,
     scroll: HashMap<String, f32>,
     edits: HashMap<String, EditBox>,
@@ -145,6 +146,7 @@ fn enter_screen(game: &mut Game<'_>, return_to_mods: bool) -> bool {
         s.released = false;
         s.wheel = 0.0;
         s.keys.clear();
+        s.submitted_edit = None;
         s.held = None;
         s.focus = None;
     });
@@ -231,7 +233,11 @@ pub(super) fn hook_key(game: &mut Game<'_>, event: &KeyEvent) -> ControlFlow<()>
         if matches!(key, KeyCode::Enter | KeyCode::NumpadEnter | KeyCode::Tab) {
             st(|s| {
                 s.focus = None;
-                s.keys.push(key);
+                if matches!(key, KeyCode::Enter | KeyCode::NumpadEnter) {
+                    s.submitted_edit = Some(id);
+                } else {
+                    s.keys.push(key);
+                }
             });
             return ControlFlow::Break(());
         }
@@ -302,6 +308,7 @@ pub(super) fn draw(game: &mut Game<'_>, batch: &mut HudBatch, build: impl FnOnce
         released: std::mem::take(&mut s.released),
         wheel: std::mem::take(&mut s.wheel),
         keys: std::mem::take(&mut s.keys),
+        submitted_edit: s.submitted_edit.take(),
         shift: false,
         held: s.held.take(),
         scroll: std::mem::take(&mut s.scroll),
@@ -345,6 +352,7 @@ pub(super) fn draw(game: &mut Game<'_>, batch: &mut HudBatch, build: impl FnOnce
 
 /// A rectangle in GUI pixels: x, y, width, height.
 pub(super) type Rect = [f32; 4];
+pub(super) const SETTINGS_ROW_HEIGHT: f32 = 24.0;
 
 fn inside(p: (f32, f32), r: Rect) -> bool {
     p.0 >= r[0] && p.0 < r[0] + r[2] && p.1 >= r[1] && p.1 < r[1] + r[3]
@@ -370,6 +378,7 @@ pub(super) struct Ui<'b> {
     released: bool,
     wheel: f32,
     keys: Vec<KeyCode>,
+    submitted_edit: Option<String>,
     held: Option<String>,
     scroll: HashMap<String, f32>,
     edits: HashMap<String, EditBox>,
@@ -574,6 +583,11 @@ impl Ui<'_> {
         self.focus.as_deref() == Some(id)
     }
 
+    /// Whether Enter was pressed in any of these fields.
+    pub(super) fn submitted(&self, ids: &[&str]) -> bool {
+        self.submitted_edit.as_deref().is_some_and(|id| ids.contains(&id))
+    }
+
     /// An item's icon, `size` pixels (16 is the inventory's).
     pub(super) fn item(&mut self, game: &Game<'_>, x: f32, y: f32, item: &str, size: f32) -> bool {
         game.native_item(self.batch, item, [x, y], size)
@@ -650,7 +664,7 @@ impl Ui<'_> {
             *col += 1;
             if *col == columns {
                 *col = 0;
-                *y += 24.0;
+                *y += SETTINGS_ROW_HEIGHT;
             }
         };
         for entry in &page.entries {
@@ -684,7 +698,7 @@ impl Ui<'_> {
                 Entry::Info(text) => {
                     if col != 0 {
                         col = 0;
-                        y += 24.0;
+                        y += SETTINGS_ROW_HEIGHT;
                     }
                     self.text(game, r[0], y + 6.0, text, 0xA0A0A0);
                     y += 16.0;
@@ -693,7 +707,7 @@ impl Ui<'_> {
             }
         }
         if col != 0 {
-            y += 24.0;
+            y += SETTINGS_ROW_HEIGHT;
         }
         (event, y - r[1])
     }

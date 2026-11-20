@@ -571,9 +571,7 @@ fn load_settings(game: &Game<'_>, s: &mut State) {
         },
         power: m.bool(st, "power"),
         tool: m.bool(st, "tool"),
-        tool_item: game
-            .setting(ID, "tool_item")
-            .map(|v| v.trim().to_string())
+        tool_item: menus::read_setting(game, "tool_item")
             .filter(|v| !v.is_empty())
             .unwrap_or(d.tool_item),
         tool_range: m.number(st, "tool_range"),
@@ -739,9 +737,11 @@ fn world_key(game: &Game<'_>) -> Option<String> {
     if game.title.is_some() || game.player.is_none() {
         return None;
     }
-    let world = match game.server_address() {
-        Some(address) if game.integrated.is_none() => format!("server_{address}"),
-        _ => format!("world_{}", game.save.root.file_name()?.to_string_lossy()),
+    let world = match (&game.integrated, game.server_address()) {
+        // The integrated client's SaveDir is a placeholder. The server handle knows the folder.
+        (Some(server), _) => format!("world_{}", server.save_folder),
+        (None, Some(address)) => format!("server_{address}"),
+        (None, None) => format!("world_{}", game.save.root.file_name()?.to_string_lossy()),
     };
     let key = format!("placed.{world}.{:?}", game.dim);
     Some(key.chars().map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') { c } else { '_' }).collect())
@@ -5191,7 +5191,8 @@ fn tab_placement(game: &mut Game<'_>, ui: &mut menus::Ui<'_>, r: menus::Rect) {
     // Where it is.
     ui.text(game, x, y + 6.0, "Origin", if free { 0xFFFFFF } else { 0x808080 });
     // The fields follow the origin unless one is being typed in.
-    let typing = ui.focused("ox") || ui.focused("oy") || ui.focused("oz");
+    let submitted = ui.submitted(&["ox", "oy", "oz"]);
+    let typing = submitted || ui.focused("ox") || ui.focused("oy") || ui.focused("oz");
     if !typing && with(|s| s.ui_origin != Some(origin)) {
         ui.set_edit("ox", &origin[0].to_string());
         ui.set_edit("oy", &origin[1].to_string());
@@ -5203,7 +5204,7 @@ fn tab_placement(game: &mut Game<'_>, ui: &mut menus::Ui<'_>, r: menus::Rect) {
     let ox = ui.edit(game, "ox", [fx, y + 1.0, fw - 2.0, 18.0], "x", 9);
     let oy = ui.edit(game, "oy", [fx + fw, y + 1.0, fw - 2.0, 18.0], "y", 9);
     let oz = ui.edit(game, "oz", [fx + 2.0 * fw, y + 1.0, fw - 2.0, 18.0], "z", 9);
-    let set = ui.button(game, [fx + 3.0 * fw + 2.0, y, 40.0, 20.0], "Set", free) || (typing && ui.key(winit::keyboard::KeyCode::Enter));
+    let set = ui.button(game, [fx + 3.0 * fw + 2.0, y, 40.0, 20.0], "Set", free) || (free && submitted);
     if set {
         match (ox.trim().parse::<i32>(), oy.trim().parse::<i32>(), oz.trim().parse::<i32>()) {
             (Ok(a), Ok(b), Ok(c)) => act(game, &["origin", &a.to_string(), &b.to_string(), &c.to_string()]),
@@ -5558,17 +5559,33 @@ fn tab_display(game: &mut Game<'_>, ui: &mut menus::Ui<'_>, r: menus::Rect) {
     );
     ui.text_fit(game, r[0], r[1] + r[3] - 22.0, r[2], &line, if full { 0xFFFF55 } else { 0xA0A0A0 });
     ui.text_fit(game, r[0], r[1] + r[3] - 11.0, r[2], "Beyond the menu: /hm radius <blocks>, /hm faces <n>|none", 0x808080);
-    let mut y = r[1];
-    for (title, page) in [("World overlay", "display"), ("HUD", "hud")] {
+    let sections = [("World overlay", "display"), ("HUD", "hud")];
+    const COLUMNS: usize = 2;
+    const HEADING_HEIGHT: f32 = 13.0;
+    const SECTION_GAP: f32 = 4.0;
+    // Both pages contain only settings and action buttons, laid out in rows.
+    let content: f32 = sections
+        .iter()
+        .filter_map(|(_, id)| menu().page_by_id(id))
+        .map(|page| {
+            let rows = page.entries.len().div_ceil(COLUMNS);
+            HEADING_HEIGHT + rows as f32 * menus::SETTINGS_ROW_HEIGHT + SECTION_GAP
+        })
+        .sum();
+    let area = [r[0], r[1], r[2], (r[3] - 26.0).max(1.0)];
+    let (mut y, mark) = ui.scroll_begin("display_settings", area, content);
+    let width = if content > area[3] { r[2] - 8.0 } else { r[2] };
+    for (title, page) in sections {
         ui.text(game, r[0], y + 2.0, title, 0xFFFFFF);
-        y += 13.0;
+        y += HEADING_HEIGHT;
         let (event, used) = {
             let mut store = menus::GameStore { game };
-            ui.settings(game, menu(), page, &mut store, [r[0], y, r[2], 0.0], 2)
+            ui.settings(game, menu(), page, &mut store, [r[0], y, width, 0.0], COLUMNS)
         };
         events.push(event);
-        y += used + 4.0;
+        y += used + SECTION_GAP;
     }
+    ui.scroll_end(game, "display_settings", area, content, mark);
     for event in events {
         match event {
             menus::Event::None => {}

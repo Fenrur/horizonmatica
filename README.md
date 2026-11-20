@@ -59,7 +59,7 @@ building them.
 
 1. Install **Horizon Nightly 2026-11-20** (`0a875da`) in the Horizon launcher.
 2. Download a release `.hmod`, or run `python3 tools/package.py` (Python 3.11+) from this repository
-   to produce `dist/horizonmatica-0.3.6.hmod`.
+   to produce `dist/horizonmatica-0.3.7.hmod`.
 3. In the instance's **Mods** tab, add the `.hmod`, enable the mod, then build and start the instance.
    To build from the source folder instead, use:
 
@@ -82,7 +82,7 @@ RWS+BRoCJslNCFapck3cbG2VFQcjlr1MUH5m3+CWA8zhJecoBoja7X94
 Check a download with:
 
 ```
-minisign -Vm horizonmatica-0.3.6.hmod -P RWS+BRoCJslNCFapck3cbG2VFQcjlr1MUH5m3+CWA8zhJecoBoja7X94
+minisign -Vm horizonmatica-0.3.7.hmod -P RWS+BRoCJslNCFapck3cbG2VFQcjlr1MUH5m3+CWA8zhJecoBoja7X94
 ```
 
 ## Usage
