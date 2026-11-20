@@ -1,0 +1,15 @@
+[package]
+name = "mod-horizonmatica"
+version = "0.3.4"
+edition = "2024"
+license = "MIT"
+publish = false
+
+
+[dependencies]
+horizon-mod-api = { path = ".horizon/sdk/api/crates/horizon-mod-api" }
+horizonmatica-core = { path = "src/core" }
+horizonmatica-menus = { path = "src/menus" }
+
+[package.metadata.horizon]
+sdk = "0a875da91dbb0fdcb7ba8c42c11341aa229af51a"

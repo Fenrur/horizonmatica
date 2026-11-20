@@ -1,0 +1,212 @@
+id = "horizonmatica"
+name = "Horizonmatica"
+version = "0.3.4"
+description = "Schematic overlays, verifier, material lists and automatic placement."
+license = "MIT"
+api = "0.2"
+side = "client"
+capabilities = ["registries"]
+
+[native]
+game = "26.3"
+horizon = "0a875da91dbb0fdcb7ba8c42c11341aa229af51a"
+mixins = "e59da9094f0c2fdda6c627fe9eff22dec6a906f0"
+
+[[native.module]]
+id = "runtime"
+file = "crates/horizon-client/src/game.rs"
+name = "horizonmatica"
+source = "src/runtime.rs"
+
+[[native.module]]
+id = "bridge"
+file = "crates/horizon-client/src/game.rs"
+name = "horizonmatica_bridge"
+source = "src/bridge.rs"
+visibility = "pub"
+
+[[native.module]]
+id = "menus_game"
+file = "crates/horizon-client/src/game.rs"
+name = "horizonmatica_menus"
+source = "src/menus_game.rs"
+
+[[native.mixin]]
+id = "tick"
+kind = "HEAD"
+helper = "src/tick.rs"
+bindings = [
+    { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
+target = "horizon_client::game::native_hooks::client_tick_pre::Game<'_>::native_client_tick_pre"
+
+[[native.mixin]]
+id = "frame"
+kind = "HEAD"
+helper = "src/frame.rs"
+bindings = [
+    { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
+target = "horizon_client::game::native_hooks::render_frame_pre::Game<'_>::native_render_frame_pre"
+
+[[native.mixin]]
+id = "hud"
+kind = "HEAD"
+helper = "src/hud.rs"
+bindings = [
+    { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+    { name = "batch", ty = "&mut horizon_client::hud::HudBatch", value = "&mut *draw" },
+    { name = "corners", ty = "&mut mod_api::Corners", value = "&mut *corners" },
+]
+target = "horizon_client::game::native_hooks::render_gui_post::Game<'_>::native_render_gui_post"
+
+[[native.mixin]]
+id = "key"
+kind = "HEAD"
+helper = "src/key.rs"
+bindings = [
+    { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+    { name = "key", ty = "&str", value = "key" },
+    { name = "action", ty = "mod_api::KeyAction", value = "action" },
+]
+target = "horizon_client::game::native_hooks::input_key::Game<'_>::native_input_key"
+
+[[native.mixin]]
+id = "wheel"
+kind = "HEAD"
+helper = "src/wheel.rs"
+bindings = [
+    { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+    { name = "scroll", ty = "[f64; 2]", value = "scroll" },
+    { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
+]
+target = "horizon_client::game::native_hooks::base::Game<'_>::native_mouse_scrolling"
+
+[[native.mixin]]
+id = "mouse"
+target = "horizon_client::game::play_input::Game<'_>::play_mouse"
+kind = "HEAD"
+cancellable = true
+helper = "src/mouse.rs"
+bindings = [
+    { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+    { name = "button", ty = "winit::event::MouseButton", value = "button" },
+    { name = "pressed", ty = "bool", value = "pressed" },
+]
+
+[[native.mixin]]
+id = "chat_tree"
+target = "horizon_client::game::chat::Game<'_>::chat_tree_for"
+kind = "OVERWRITE"
+helper = "src/chat_tree.rs"
+bindings = [
+    { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+    { name = "base", ty = "Option<&horizon_client::command::Dispatcher>", value = "base" },
+]
+
+[[native.mixin]]
+id = "command"
+kind = "HEAD"
+helper = "src/command.rs"
+bindings = [
+    { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+    { name = "command", ty = "&str", value = "command" },
+    { name = "ran", ty = "&mut bool", value = "&mut *ran" },
+]
+target = "horizon_client::game::native_hooks::base::Game<'_>::native_command"
+
+[[native.mixin]]
+id = "world_drawn"
+kind = "HEAD"
+helper = "src/world_drawn.rs"
+bindings = [
+    { name = "world", ty = "&mut WorldDrawn<'_>", value = "&mut *world" },
+]
+target = "horizon_mod_render::render::world_drawn"
+
+[[native.mixin]]
+id = "render_needs"
+kind = "HEAD"
+helper = "src/render_needs.rs"
+bindings = [
+    { name = "needs", ty = "&mut RenderNeeds", value = "&mut *needs" },
+]
+target = "horizon_mod_render::render::render_needs"
+
+[[native.mixin]]
+id = "menus_screen_draw"
+target = "horizon_client::game::debug_options::Game<'_>::draw_debug_options"
+kind = "HEAD"
+helper = "src/menus_screen_draw.rs"
+bindings = [
+    { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+    { name = "batch", ty = "&mut horizon_client::hud::HudBatch", value = "&mut *batch" },
+]
+
+[[native.mixin]]
+id = "menus_screen_click"
+target = "horizon_client::game::debug_options::Game<'_>::debug_options_click"
+kind = "HEAD"
+helper = "src/menus_screen_click.rs"
+bindings = [
+    { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
+
+[[native.mixin]]
+id = "menus_screen_release"
+target = "horizon_client::game::debug_options::Game<'_>::debug_options_release"
+kind = "HEAD"
+helper = "src/menus_screen_release.rs"
+bindings = [
+    { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
+
+[[native.mixin]]
+id = "menus_screen_scroll"
+target = "horizon_client::game::debug_options::Game<'_>::debug_options_scroll"
+kind = "HEAD"
+helper = "src/menus_screen_scroll.rs"
+bindings = [
+    { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+    { name = "delta", ty = "f32", value = "delta" },
+]
+
+[[native.mixin]]
+id = "menus_screen_key"
+target = "horizon_client::game::debug_options::Game<'_>::debug_options_key"
+kind = "HEAD"
+cancellable = true
+helper = "src/menus_screen_key.rs"
+bindings = [
+    { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+    { name = "event", ty = "&winit::event::KeyEvent", value = "event" },
+]
+
+[[native.mixin]]
+id = "menus_screen_type"
+target = "horizon_client::game::debug_options::Game<'_>::debug_options_type"
+kind = "HEAD"
+helper = "src/menus_screen_type.rs"
+bindings = [
+    { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+    { name = "typed", ty = "&str", value = "typed" },
+]
+
+[[native.mixin]]
+id = "menus_screen_close"
+target = "horizon_client::game::debug_options::Game<'_>::close_debug_options"
+kind = "HEAD"
+helper = "src/menus_screen_close.rs"
+bindings = [
+    { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
+
+[[native.mixin]]
+id = "menus_screen_pauses"
+target = "horizon_client::game::pointer_capture::Game<'_>::pauses_game"
+kind = "HEAD"
+cancellable = true
+helper = "src/menus_screen_pauses.rs"
+bindings = [
+    { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+]

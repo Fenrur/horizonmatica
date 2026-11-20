@@ -9,29 +9,27 @@
 // translucent pass, so it needs no render hook point.
 
 use super::Game;
-use horizon_client::extras::Corner;
-use horizon_client::extras_hud::Corners;
+use mod_api::Corner;
+use mod_api::Corners;
 use horizon_client::hud::HudBatch;
 use horizon_client::mesher::Vertex;
-use horizon_client_render::gfx::native_render::horizonmatica_bridge as bridge;
+use super::horizonmatica_bridge as bridge;
 use super::horizonmatica_menus as menus;
 use horizon_core::geometry::{Direction, Vec3};
 use horizon_core::position::BlockPos;
 use horizon_world::level::PlaceContext;
 use horizon_world::registry::BlockStateId;
-use horizonmatica_core::formats::Format;
-use horizonmatica_core::materials::{self, Material};
-use horizonmatica_core::printer::{self, PrinterSettings, Recent, Stuck};
-use horizonmatica_core::verify::{self, Status, Tally};
-use horizonmatica_core::{BlockState, LayerMode, Mirror, Placement, Rotation, Schematic};
+use mod_horizonmatica::core::formats::Format;
+use mod_horizonmatica::core::materials::{self, Material};
+use mod_horizonmatica::core::printer::{self, PrinterSettings, Recent, Stuck};
+use mod_horizonmatica::core::verify::{self, Status, Tally};
+use mod_horizonmatica::core::{BlockState, LayerMode, Mirror, Placement, Rotation, Schematic};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
 
 pub(crate) const ID: &str = "horizonmatica";
-pub(crate) const VERSION: &str = "0.3.3";
-pub(crate) const DESCRIPTION: &str = "Schematic overlay, verifier, material list and printer (auto-build) for .litematic, .schem, .schematic and .nbt files. Based on Litematica by masa (maruohon) and Sakura-Ryoko, and the Litematica Printer by aleksilassila. Not made or endorsed by them.";
 
 /// Who Horizonmatica owes its design to (`/horizonmatica credits`, the settings page).
 const CREDITS: &[&str] = &[
@@ -273,7 +271,6 @@ struct State {
     /// The world (and dimension) the placement belongs to: `world_key`.
     world_key: Option<String>,
     /// Where the player is in the menu.
-    nav: menus::Nav,
     /// The tick the printer last used each hotbar slot (creative picks reuse the oldest).
     hotbar_used: [u64; 9],
     /// The menu screen: its tab, the file picked on Load, the files listed and what is known of
@@ -428,7 +425,7 @@ impl State {
     /// The area selection's size in blocks, checked (`None` without both corners).
     fn area_size(&self) -> Option<[i32; 3]> {
         let [Some(a), Some(b)] = self.area else { return None };
-        horizonmatica_core::area::size(a, b)
+        mod_horizonmatica::core::area::size(a, b)
     }
     /// Drops every placement (another world, `/hm unload all`).
     fn drop_all(&mut self) {
@@ -553,9 +550,9 @@ fn load_settings(game: &Game<'_>, s: &mut State) {
         mode: if m.choice(st, "mode") == "boxes" { Mode::Boxes } else { Mode::Ghost },
         alpha: m.number(st, "alpha") as f32,
         // Read as written: `/hm radius` and `/hm faces` go past the menu's choices.
-        radius: game.native_setting(ID, "radius").and_then(|v| v.trim().parse::<f64>().ok()).map_or(d.radius, |v| (v as i32).max(16)),
+        radius: game.setting(ID, "radius").and_then(|v| v.trim().parse::<f64>().ok()).map_or(d.radius, |v| (v as i32).max(16)),
         radius_view: m.bool(st, "radius_view"),
-        max_faces: game.native_setting(ID, "max_faces").and_then(|v| parse_faces(&v)).unwrap_or(d.max_faces),
+        max_faces: game.setting(ID, "max_faces").and_then(|v| parse_faces(&v)).unwrap_or(d.max_faces),
         hide_fluids: m.bool(st, "hide_fluids"),
         show_extra: m.bool(st, "show_extra"),
         show_wrong: m.bool(st, "show_wrong"),
@@ -575,7 +572,7 @@ fn load_settings(game: &Game<'_>, s: &mut State) {
         power: m.bool(st, "power"),
         tool: m.bool(st, "tool"),
         tool_item: game
-            .native_setting(ID, "tool_item")
+            .setting(ID, "tool_item")
             .map(|v| v.trim().to_string())
             .filter(|v| !v.is_empty())
             .unwrap_or(d.tool_item),
@@ -642,7 +639,7 @@ fn render_radius(game: &Game<'_>, st: &Settings) -> i32 {
 
 /// Writes `s` in the menu's format (commands change settings too).
 fn save_settings(game: &Game<'_>, s: &Settings) {
-    let set = |k: &str, v: String| game.native_set_setting(ID, k, &v);
+    let set = |k: &str, v: String| game.set_setting(ID, k, &v);
     set("render", s.render.to_string());
     set("through", s.through.to_string());
     set("mode", if s.mode == Mode::Boxes { "boxes" } else { "ghost" }.into());
@@ -703,10 +700,10 @@ fn save_placements(game: &Game<'_>) {
         (last, world)
     });
     if let Some(last) = last {
-        game.native_set_setting(ID, "last", &last);
+        game.set_setting(ID, "last", &last);
     }
     if let Some(key) = world_key(game) {
-        game.native_set_setting(ID, &key, &world);
+        game.set_setting(ID, &key, &world);
     }
 }
 
@@ -774,7 +771,7 @@ fn restore_step(game: &mut Game<'_>) {
         s.area = [None; 2];
     });
     bridge::clear();
-    let Some(saved) = game.native_setting(ID, &key) else { return };
+    let Some(saved) = game.setting(ID, &key) else { return };
     let (selected, entries) = parse_world(&saved);
     if entries.is_empty() {
         return;
@@ -784,98 +781,6 @@ fn restore_step(game: &mut Game<'_>) {
     let lines = start_load(game, files, Then::Restore { flags, selected }).unwrap_or_else(|e| vec![format!("Couldn't restore: {e}")]);
     for l in lines {
         say(game, &l);
-    }
-}
-
-// ---------------------------------------------------------------- the mod list
-
-pub(super) fn listed() -> super::native_hooks::NativeMod {
-    super::native_hooks::NativeMod {
-        id: ID.into(),
-        title: format!("Horizonmatica {VERSION}"),
-        description: DESCRIPTION.into(),
-        // Bound on the mod's own Keys page, not in Options > Mods.
-        keys: Vec::new(),
-    }
-}
-
-/// The mod's page in Options > Mods: the menu's page the player is on.
-pub(super) fn settings_buttons(game: &Game<'_>, buttons: &mut Vec<String>) {
-    let mut nav = with(|s| {
-        load_settings(game, s);
-        std::mem::take(&mut s.nav)
-    });
-    let store = menus::GameStore { game, id: ID };
-    buttons.extend(menu().render(&mut nav, &store, &mut |list| menu_list(list)));
-    with(|s| s.nav = nav);
-}
-
-pub(super) fn settings_click(game: &mut Game<'_>, button: usize) {
-    let mut nav = with(|s| std::mem::take(&mut s.nav));
-    let reverse = menus::reverse(game);
-    let event = {
-        let mut store = menus::GameStore { game: &*game, id: ID };
-        menu().click(&mut nav, &mut store, button, reverse)
-    };
-    with(|s| {
-        s.nav = nav;
-        s.settings_loaded = false;
-        load_settings(game, s);
-        s.mesh_key = None;
-    });
-    if let menus::Event::Action(action) = event {
-        menu_action(game, &action);
-    }
-}
-
-/// The rows the menu's lists show now: `(label, action)`, no action for a plain line.
-fn menu_list(list: &str) -> Vec<(String, String)> {
-    let row = |label: String, action: &str| (label, action.to_string());
-    let printer = |on: bool| row(format!("Printer: {} (click to switch)", if on { "ON" } else { "OFF" }), "printer_toggle");
-    match list {
-        "status" => with(|s| {
-            let Some(p) = s.placement() else {
-                return vec![row("No schematic loaded: Load schematic below".into(), "")];
-            };
-            let mut rows = vec![row(format!("Selected: {} ({} of {})", display_name(p), s.selected + 1, s.slots.len()), "")];
-            if let Some(t) = s.tally() {
-                rows.push(row(format!("{:.1}% done, {} missing", t.percent(), t.missing), ""));
-            }
-            rows.push(printer(s.settings.printer_on));
-            rows
-        }),
-        "files" => {
-            let Ok(dir) = schematics_dir() else { return vec![row("No schematics folder".into(), "")] };
-            let names = horizonmatica_core::list_schematics(&dir);
-            if names.is_empty() {
-                return vec![row("No files yet: .litematic, .schem, .schematic, .nbt".into(), "")];
-            }
-            names.into_iter().map(|n| (n.clone(), format!("load:{n}"))).collect()
-        }
-        "placement" => with(|s| {
-            let Some(p) = s.placement() else { return vec![row("No schematic loaded".into(), "")] };
-            let shown = s.sel().is_some_and(|x| x.shown);
-            vec![
-                row(format!("{} of {}: {} (click: next)", s.selected + 1, s.slots.len(), display_name(p)), "select_next"),
-                row(format!("Shown: {} (click to switch)", if shown { "yes" } else { "no" }), "show_toggle"),
-                row(format!("Origin {} {} {}", p.origin[0], p.origin[1], p.origin[2]), ""),
-                row(format!("Rotation: {} (click: clockwise)", p.rotation.name()), "rotate_cw"),
-                row(format!("Mirror: {} (click: next)", p.mirror.name()), "mirror_next"),
-                row(format!("Layers: {} (click: next mode)", s.layer.describe()), "layer_next"),
-                row(
-                    format!("Move mode: {} (wheel, arrows, PgUp/PgDn)", if s.moving { "ON" } else { "OFF" }),
-                    "move_mode",
-                ),
-            ]
-        }),
-        "printer" => with(|s| {
-            let mut rows = vec![printer(s.settings.printer_on), row(format!("Placed this session: {}", s.placed), "")];
-            if !s.printer_note.is_empty() {
-                rows.push(row(s.printer_note.clone(), ""));
-            }
-            rows
-        }),
-        _ => Vec::new(),
     }
 }
 
@@ -908,7 +813,7 @@ fn menu_action(game: &mut Game<'_>, action: &str) {
         }
         "credits_chat" => {
             for line in CREDITS {
-                game.native_chat(line);
+                game.chat_line(horizon_client::text::Text::literal(*line));
             }
             return;
         }
@@ -1099,7 +1004,7 @@ fn status_at(game: &Game<'_>, s: &mut State, w: [i32; 3]) -> Option<(Status, Blo
 // ---------------------------------------------------------------- loading
 
 fn schematics_dir() -> Result<PathBuf, String> {
-    let config = Game::native_config_dir()?;
+    let config = Game::native_config_dir().map_err(|err| err.to_string())?;
     let dir = config.parent().map_or_else(|| config.join("schematics"), |g| g.join("schematics"));
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     Ok(dir)
@@ -1154,7 +1059,7 @@ fn display_name(p: &Placement) -> String {
 /// to flattened ones, `grass` to `short_grass`, ...). Returns how many palette entries changed.
 fn upgrade_states(schematic: &mut Schematic) -> usize {
     use horizon_world::datafix::{self, schema::Ty};
-    use horizon_world::nbt::Tag as N;
+    use horizon_core::nbt::Tag as N;
     let from = schematic.data_version as i32;
     let to = horizon_world::DATA_VERSION;
     if from <= 0 || from >= to {
@@ -1209,9 +1114,9 @@ struct ReadFile {
 }
 
 fn read_file(dir: &std::path::Path, query: &str) -> Result<ReadFile, String> {
-    let file = horizonmatica_core::find_schematic(dir, query)?;
+    let file = mod_horizonmatica::core::find_schematic(dir, query)?;
     let bytes = std::fs::read(dir.join(&file)).map_err(|e| format!("{file}: {e}"))?;
-    let (mut schematic, format) = horizonmatica_core::formats::load(&bytes).map_err(|e| format!("{file}: {e}"))?;
+    let (mut schematic, format) = mod_horizonmatica::core::formats::load(&bytes).map_err(|e| format!("{file}: {e}"))?;
     drop(bytes);
     let from_version = schematic.data_version;
     let upgraded = upgrade_states(&mut schematic);
@@ -1262,7 +1167,7 @@ fn start_load(game: &mut Game<'_>, files: Vec<(String, At)>, then: Then) -> Resu
     let queries: Vec<String> = files.iter().map(|(f, _)| f.clone()).collect();
     let bytes = queries
         .iter()
-        .filter_map(|q| horizonmatica_core::find_schematic(&dir, q).ok())
+        .filter_map(|q| mod_horizonmatica::core::find_schematic(&dir, q).ok())
         .filter_map(|f| std::fs::metadata(dir.join(f)).ok())
         .map(|m| m.len())
         .sum();
@@ -1459,27 +1364,15 @@ fn load(game: &mut Game<'_>, query: &str, at: Option<At>) -> Result<Vec<String>,
 
 // ---------------------------------------------------------------- commands
 
-pub(super) fn commands(commands: &mut Vec<&'static str>) {
-    commands.push("horizonmatica");
-    commands.push("hm");
-}
-
-/// The tree the chat colours and completes with: as the game builds it, with this mod's commands
-/// spelled out, so the chat offers each word as it is typed. Every word still leads to `command`,
-/// which reads the line itself.
-pub(super) fn chat_tree(game: &mut Game<'_>, base: Option<&horizon_client::command::Dispatcher>) -> horizon_client::command::Dispatcher {
-    let mut names = Vec::new();
-    game.native_commands(&mut names);
-    let base = base.unwrap_or_else(|| horizon_client::command::vanilla::game_dispatcher());
-    let mut tree = super::chat::with_native_commands(base, &names);
+pub(super) fn chat_tree(tree: &mut horizon_client::command::Dispatcher) {
+    *tree = super::chat::with_native_commands(tree, &["horizonmatica", "hm"]);
     for name in ["horizonmatica", "hm"] {
         if let Some(root) = tree.find(name) {
-            add_words(&mut tree, root);
+            add_words(tree, root);
         }
     }
     let (files, slots) = with(|s| s.completions);
-    set_completions(&mut tree, files, slots);
-    tree
+    set_completions(tree, files, slots);
 }
 
 /// Every subcommand with the words it takes, and the name shown for what it takes besides.
@@ -1596,7 +1489,7 @@ fn completions_step(game: &mut Game<'_>) {
     if game.ui.chat_screen.is_none() || game.ticks % 20 != 0 {
         return;
     }
-    let files = schematics_dir().map(|dir| horizonmatica_core::list_schematics(&dir)).unwrap_or_default();
+    let files = schematics_dir().map(|dir| mod_horizonmatica::core::list_schematics(&dir)).unwrap_or_default();
     let slots: Vec<String> = with(|s| s.slots.iter().map(|x| display_name(&x.placement)).collect());
     let same = |old: &[&str], new: &[String]| old.len() == new.len() && old.iter().zip(new).all(|(a, b)| *a == b);
     let leak = |new: Vec<String>| -> &'static [&'static str] {
@@ -1615,7 +1508,7 @@ fn completions_step(game: &mut Game<'_>) {
 }
 
 fn say(game: &mut Game<'_>, text: &str) {
-    game.native_chat(&format!("[Horizonmatica] {text}"));
+    game.chat_line(horizon_client::text::Text::literal(format!("[Horizonmatica] {text}")));
 }
 
 const HELP: &[&str] = &[
@@ -1747,7 +1640,7 @@ fn run(game: &mut Game<'_>, args: &[&str]) -> Result<Vec<String>, String> {
         "folder" => Ok(vec![format!("Schematics folder: {}", schematics_dir()?.display())]),
         "list" => {
             let dir = schematics_dir()?;
-            let names = horizonmatica_core::list_schematics(&dir);
+            let names = mod_horizonmatica::core::list_schematics(&dir);
             if names.is_empty() {
                 return Ok(vec![format!("No schematic files (.litematic, .schem, .schematic, .nbt) in {}", dir.display())]);
             }
@@ -1760,7 +1653,7 @@ fn run(game: &mut Game<'_>, args: &[&str]) -> Result<Vec<String>, String> {
             load(game, &rest.join(" "), None)
         }
         "reload" => {
-            let last = game.native_setting(ID, "last").ok_or("nothing loaded before")?;
+            let last = game.setting(ID, "last").ok_or("nothing loaded before")?;
             let (file, at) = parse_saved(&last).ok_or("the saved placement is unreadable")?;
             start_load(game, vec![(file, at)], Then::Reload)
         }
@@ -1861,7 +1754,7 @@ fn run(game: &mut Game<'_>, args: &[&str]) -> Result<Vec<String>, String> {
                 Some("here") => feet(game).ok_or("not in a world")?,
                 _ => [int(rest.first(), "x")?, int(rest.get(1), "y")?, int(rest.get(2), "z")?],
             };
-            let at = horizonmatica_core::area::check_corner(at)?;
+            let at = mod_horizonmatica::core::area::check_corner(at)?;
             let i = usize::from(sub.ends_with('2'));
             let size = with(|s| {
                 s.area[i] = Some(at);
@@ -2231,7 +2124,10 @@ fn ensure_binds(game: &Game<'_>, s: &mut State) {
         BINDS
             .iter()
             .map(|(id, _, default)| {
-                let key = game.native_setting(ID, &bind_file(id)).unwrap_or_else(|| game.native_mod_key(ID, id, default));
+                let key = game.setting(ID, &bind_file(id)).unwrap_or_else(|| {
+                    game.mod_key(ID, id)
+                        .map_or_else(|| String::from(*default), |(key, _)| key)
+                });
                 (id.to_string(), key)
             })
             .collect(),
@@ -2269,7 +2165,7 @@ fn set_bind(game: &Game<'_>, id: &str, key: &str) {
     });
     for i in changed {
         let value = key_of(game, &i);
-        game.native_set_setting(ID, &bind_file(&i), &value);
+        game.set_setting(ID, &bind_file(&i), &value);
     }
 }
 
@@ -2324,7 +2220,7 @@ fn capture_key(game: &Game<'_>, ui: &mut menus::Ui<'_>) {
 }
 
 pub(super) fn key(game: &mut Game<'_>, key: &str, pressed: bool) {
-    if !pressed || !game.native_on(ID) || !game.native_playing() {
+    if !pressed || !game.on(ID) || !game.playing() {
         return;
     }
     let hit = with(|s| {
@@ -2339,13 +2235,8 @@ pub(super) fn key(game: &mut Game<'_>, key: &str, pressed: bool) {
         return;
     }
     if hit == Some("open_menu") {
-        // As Litematica's main menu: always from its first page.
-        // Horizonmatica's own screen; the mod's page in Options > Mods when it can't open.
         if !menus::open_screen(game) {
-            with(|s| s.nav.reset());
-            if !menus::open_page(game, ID) {
-                say(game, "The menu is in Options > Mods > Horizonmatica");
-            }
+            say(game, "Close the current screen and press the menu key again.");
         }
         return;
     }
@@ -2394,7 +2285,7 @@ fn toggle_move_mode(game: &mut Game<'_>) {
 /// Blocks per step: 5 with Shift held.
 fn move_step(game: &Game<'_>) -> i32 {
     use winit::keyboard::KeyCode;
-    if game.keys.contains(&KeyCode::ShiftLeft) || game.keys.contains(&KeyCode::ShiftRight) { 5 } else { 1 }
+    if game.keys.raw(&KeyCode::ShiftLeft) || game.keys.raw(&KeyCode::ShiftRight) { 5 } else { 1 }
 }
 
 /// The unit axis closest to `dir`.
@@ -2463,7 +2354,7 @@ fn move_key(game: &mut Game<'_>, key: &str) -> bool {
 /// The wheel in move mode: the placement moves along the axis you look along, away from you
 /// when scrolled up. Claimed, so the hotbar stays put.
 pub(super) fn wheel(game: &mut Game<'_>, steps: f32, claimed: &mut bool) {
-    if !game.native_on(ID) || !game.native_playing() {
+    if !game.on(ID) || !game.playing() {
         return;
     }
     if !with(|s| s.moving && s.placement().is_some()) {
@@ -2501,7 +2392,7 @@ fn report(game: &mut Game<'_>, r: Result<Vec<String>, String>) {
 // ---------------------------------------------------------------- per tick
 
 pub(super) fn tick(game: &mut Game<'_>) {
-    if !game.native_window() || !game.native_on(ID) {
+    if !game.options.execution_role.is_client() || !game.on(ID) {
         return;
     }
     if game.player.is_none() {
@@ -2523,7 +2414,9 @@ pub(super) fn tick(game: &mut Game<'_>) {
 /// Leaving a world, or the mod switched off: the overlay is dropped. Otherwise the render side
 /// gets the current draw options (they need no new geometry).
 pub(super) fn frame(game: &mut Game<'_>) {
-    let active = game.player.is_some() && game.native_on(ID);
+    let draw: for<'a> fn(&mut mod_render::render::WorldDrawn<'a>) = bridge::draw;
+    mod_horizonmatica::register_draw(draw);
+    let active = game.player.is_some() && game.on(ID);
     with(|s| {
         if !active {
             if !s.mesh.built.is_empty() || s.mesh_key.is_some() {
@@ -3325,7 +3218,7 @@ fn printer_step(game: &mut Game<'_>) {
         send_look(game, yaw, pitch);
     }
     let (on, settings) = with(|s| (s.settings.printer_on && s.slots.iter().any(|x| x.shown) && !s.moving, s.settings.printer));
-    if !on || !game.native_playing() || now < with(|s| s.next_print) {
+    if !on || !game.playing() || now < with(|s| s.next_print) {
         return;
     }
     let Some(eye) = game.eye_position() else { return };
@@ -3526,7 +3419,7 @@ fn printer_step(game: &mut Game<'_>) {
 /// Whether easy place has a say right now.
 fn easy_active(game: &Game<'_>) -> bool {
     let (on, shown, moving) = with(|s| (s.settings.easy_place, s.slots.iter().any(|x| x.shown), s.moving));
-    on && shown && !moving && game.native_playing() && !game.spectator() && !tool_held(game)
+    on && shown && !moving && game.playing() && !game.spectator() && !tool_held(game)
 }
 
 /// The block the view asks for, for easy place: the player's own two cells can't take one.
@@ -3541,7 +3434,7 @@ fn easy_target(game: &Game<'_>) -> Option<([i32; 3], BlockState)> {
 /// is taken in hand, and with the button down the next one goes in.
 fn easy_place_step(game: &mut Game<'_>) {
     // A screen took the release of the button with it.
-    if !game.native_playing() {
+    if !game.playing() {
         with(|s| {
             s.right_down = false;
             s.easy_taken = false;
@@ -3649,7 +3542,7 @@ fn easy_place_refuses(game: &mut Game<'_>) -> bool {
     let Some(hit) = game.clip_ray(origin, dir, reach) else {
         return game.pack.assets.registry.default_state(&item).is_some();
     };
-    let sneaking = game.keys.contains(&KeyCode::ShiftLeft) || game.keys.contains(&KeyCode::ShiftRight);
+    let sneaking = game.keys.raw(&KeyCode::ShiftLeft) || game.keys.raw(&KeyCode::ShiftRight);
     let clicked = game.world.block(hit.pos[0], hit.pos[1], hit.pos[2]);
     if !sneaking && with(|s| interactive(&game_state(game, &mut s.states, clicked).name)) {
         return false;
@@ -3658,14 +3551,14 @@ fn easy_place_refuses(game: &mut Game<'_>) -> bool {
         clicked_pos: BlockPos::new(hit.pos[0], hit.pos[1], hit.pos[2]),
         face: face_dir(hit.face),
         hit: Vec3::new(hit.point[0], hit.point[1], hit.point[2]),
-        inside: false,
+        inside: hit.inside,
         yaw: game.yaw,
         pitch: game.pitch,
         sneaking,
         item,
         can_use_game_master_blocks: game.can_use_game_master_blocks(),
     };
-    game.with_level(|b, level, ticks| b.placement_state(level, ticks, &ctx)).is_some()
+    game.with_level(|b, level, ticks| b.placement_preview(level, ticks, &ctx)).is_some()
 }
 
 /// Makes `click`: the camera never moves (like litematica-printer, only the click carries the
@@ -3686,7 +3579,7 @@ fn do_click(game: &mut Game<'_>, click: &Click) -> Result<(), String> {
     let before = (game.yaw, game.pitch);
     // Sneaking is read from the held Shift key: held for a sneaking click, let go otherwise
     // (a player holding Shift would place against chests instead of setting a repeater).
-    let shift_held = game.keys.contains(&KeyCode::ShiftLeft);
+    let shift_held = game.keys.raw(&KeyCode::ShiftLeft);
     if click.sneak {
         game.keys.insert(KeyCode::ShiftLeft);
     } else {
@@ -3827,16 +3720,18 @@ fn would_place(
         clicked_pos: BlockPos::new(hit.pos[0], hit.pos[1], hit.pos[2]),
         face: face_dir(hit.face),
         hit: Vec3::new(hit.point[0], hit.point[1], hit.point[2]),
-        inside: false,
+        inside: hit.inside,
         yaw,
         pitch,
         sneaking: sneak,
         item: item.to_string(),
         can_use_game_master_blocks: game.can_use_game_master_blocks(),
     };
-    let Some((pos, state)) = game.with_level(|b, level, ticks| b.placement_state(level, ticks, &ctx)) else {
+    let Some(preview) = game.with_level(|b, level, ticks| b.placement_preview(level, ticks, &ctx)) else {
         return false;
     };
+    let pos = preview.pos;
+    let state = preview.state;
     if [pos.x, pos.y, pos.z] != p {
         return false;
     }
@@ -3859,7 +3754,7 @@ fn face_axes(f: [i32; 3]) -> (usize, usize, usize) {
 
 /// A look and click that make vanilla's placement put `wanted` at `p`: points on each face of
 /// the neighbours (sneaking too, when not on a server: then chests and doors can be clicked,
-/// and a chest stays single), asking the game's own `placement_state` what each would place.
+/// and a chest stays single), asking the game's own `placement_preview` what each would place.
 /// With `air`, a spot no neighbour can be clicked for is clicked itself ("air place": the
 /// clicked block is replaceable, so `BlockPlaceContext` places into it), with any look.
 fn aim_for(game: &mut Game<'_>, eye: [f64; 3], reach: f64, p: [i32; 3], wanted: &BlockState, item: &str, air: bool) -> Option<Click> {
@@ -3912,7 +3807,7 @@ fn aim_for(game: &mut Game<'_>, eye: [f64; 3], reach: f64, p: [i32; 3], wanted: 
                 if dist > reach {
                     continue;
                 }
-                let hit = super::Hit { pos: p, face: d, point };
+                let hit = super::Hit { pos: p, face: d, point, inside: false };
                 let (ny, np) = super::agent::yaw_pitch(eye, point);
                 let natural = std::iter::once((ny, np.clamp(-90.0, 90.0)));
                 let any = (0..16).flat_map(|i| {
@@ -3953,7 +3848,7 @@ fn aim_stack(game: &mut Game<'_>, eye: [f64; 3], reach: f64, p: [i32; 3], wanted
                     return Some(Click { yaw, pitch, hit, sneak: false });
                 }
                 if air {
-                    let hit = super::Hit { pos: p, face: f, point };
+                    let hit = super::Hit { pos: p, face: f, point, inside: false };
                     if would_place(game, p, wanted, wanted_id, item, &hit, yaw, pitch, false) {
                         return Some(Click { yaw, pitch, hit, sneak: false });
                     }
@@ -3973,7 +3868,7 @@ fn aim_block(game: &mut Game<'_>, eye: [f64; 3], reach: f64, p: [i32; 3]) -> Opt
     let dir = super::view_vector(yaw, pitch);
     let hit = match game.clip_ray(eye, dir, reach) {
         Some(hit) if hit.pos == p => hit,
-        _ => super::Hit { pos: p, face: [0, 1, 0], point: centre },
+        _ => super::Hit { pos: p, face: [0, 1, 0], point: centre, inside: false },
     };
     Some(Click { yaw, pitch, hit, sneak: false })
 }
@@ -4089,7 +3984,7 @@ pub(super) fn mouse(game: &mut Game<'_>, button: winit::event::MouseButton, pres
         }
         return with(|s| std::mem::take(&mut s.tool_down[b]));
     }
-    if !game.native_on(ID) || !game.native_playing() {
+    if !game.on(ID) || !game.playing() {
         return false;
     }
     // Easy place: the press is taken when it places, and when the game's own use would place
@@ -4123,7 +4018,7 @@ pub(super) fn mouse(game: &mut Game<'_>, button: winit::event::MouseButton, pres
     if b < 2 {
         if let Some(at) = tool_target(game) {
             with(|s| {
-                s.area[b] = Some(horizonmatica_core::area::clamp_corner(at));
+                s.area[b] = Some(mod_horizonmatica::core::area::clamp_corner(at));
                 s.grab = Grab::Corner(b);
             });
         }
@@ -4342,7 +4237,7 @@ fn tool_wheel(game: &mut Game<'_>, steps: f32, claimed: &mut bool) {
             grow(s, axis, k);
         } else {
             let d = axis.map(|a| a.saturating_mul(k));
-            let moved = |c: Option<[i32; 3]>| c.map(|c| horizonmatica_core::area::offset_corner(c, d));
+            let moved = |c: Option<[i32; 3]>| c.map(|c| mod_horizonmatica::core::area::offset_corner(c, d));
             match s.grab {
                 Grab::Corner(i) => s.area[i] = moved(s.area[i]),
                 Grab::Box => s.area = s.area.map(moved),
@@ -4362,7 +4257,7 @@ fn grow(s: &mut State, axis: [i32; 3], k: i32) {
     let (c, other) = if f == 0 { (a, b[i]) } else { (b, a[i]) };
     let mut d = [0; 3];
     d[i] = sign.saturating_mul(k);
-    let mut c = horizonmatica_core::area::offset_corner(c, d);
+    let mut c = mod_horizonmatica::core::area::offset_corner(c, d);
     // Shrunk to one block at most.
     if (i64::from(c[i]) - i64::from(other)) * i64::from(sign) < 0 {
         c[i] = other;
@@ -4413,7 +4308,7 @@ fn tool_lines(s: &State) -> Vec<(String, u32)> {
 // ---------------------------------------------------------------- saving an area
 
 /// Most positions one save takes: as many as a file may hold to be loaded again (2^31).
-const MAX_SAVE: u64 = horizonmatica_core::schematic::MAX_VOLUME;
+const MAX_SAVE: u64 = mod_horizonmatica::core::schematic::MAX_VOLUME;
 /// Time a save may take per tick.
 const SAVE_BUDGET: std::time::Duration = std::time::Duration::from_millis(4);
 /// The render side's section key for the frames around the chunks a save still waits for.
@@ -4430,7 +4325,7 @@ struct SaveJob {
     path: std::path::PathBuf,
     lo: [i32; 3],
     hi: [i32; 3],
-    builder: horizonmatica_core::schematic::RegionBuilder,
+    builder: mod_horizonmatica::core::schematic::RegionBuilder,
     /// Game state id → palette index.
     ids: HashMap<u32, u32>,
     /// Chunk columns not read yet.
@@ -4477,8 +4372,8 @@ fn start_save(game: &mut Game<'_>, name: &str, overwrite: bool) -> Result<String
         return Err(format!("{file} is still being saved (/hm save cancel stops it)"));
     }
     let (lo, hi) = with(|s| s.area_box()).ok_or("set both corners first (the selection tool, or /hm pos1 and /hm pos2)")?;
-    let size = horizonmatica_core::area::size(lo, hi).ok_or("the area is too large to save")?;
-    match horizonmatica_core::area::volume(size) {
+    let size = mod_horizonmatica::core::area::size(lo, hi).ok_or("the area is too large to save")?;
+    match mod_horizonmatica::core::area::volume(size) {
         Some(volume) if volume <= MAX_SAVE => {}
         _ => return Err(format!("the area has {} blocks; at most {MAX_SAVE} can be saved at once", volume_text(size))),
     }
@@ -4501,7 +4396,7 @@ fn start_save(game: &mut Game<'_>, name: &str, overwrite: bool) -> Result<String
         path,
         lo,
         hi,
-        builder: horizonmatica_core::schematic::RegionBuilder::new(size),
+        builder: mod_horizonmatica::core::schematic::RegionBuilder::new(size),
         ids: HashMap::new(),
         pending,
         total,
@@ -4606,15 +4501,15 @@ fn save_chunk(game: &Game<'_>, job: &mut SaveJob, (cx, cz): (i32, i32)) {
 fn finish_save(game: &mut Game<'_>, job: SaveJob) {
     let SaveJob { name, file, path, lo, hi, builder, started, .. } = job;
     // Checked when the save started (at most MAX_SAVE blocks).
-    let size = horizonmatica_core::area::size(lo, hi).unwrap_or([1; 3]);
-    let volume = horizonmatica_core::area::volume(size).and_then(|v| i64::try_from(v).ok()).unwrap_or(0);
+    let size = mod_horizonmatica::core::area::size(lo, hi).unwrap_or([1; 3]);
+    let volume = mod_horizonmatica::core::area::volume(size).and_then(|v| i64::try_from(v).ok()).unwrap_or(0);
     let (blocks, states) = (builder.non_air(), builder.states());
     let stem = file.trim_end_matches(".litematic").to_string();
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
     let schematic = Schematic {
         version: 7,
         data_version: i64::from(horizon_world::DATA_VERSION),
-        metadata: horizonmatica_core::schematic::Metadata {
+        metadata: mod_horizonmatica::core::schematic::Metadata {
             name,
             author: game.options.player_name(),
             description: String::new(),
@@ -4757,8 +4652,8 @@ fn material_list(game: &Game<'_>) -> Vec<Material> {
     })
 }
 
-pub(super) fn hud(game: &mut Game<'_>, batch: &mut HudBatch, corners: &mut Corners) {
-    if !game.native_on(ID) {
+pub(super) fn hud(game: &Game<'_>, batch: &mut HudBatch, corners: &mut Corners) {
+    if !game.on(ID) {
         return;
     }
     let tool = tool_held(game);
@@ -4839,7 +4734,7 @@ pub(super) fn hud(game: &mut Game<'_>, batch: &mut HudBatch, corners: &mut Corne
         lines.extend(with(|s| tool_lines(s)));
     }
     if !lines.is_empty() && game.native_corner_shown(Corner::TopLeft) {
-        let w = lines.iter().map(|(t, _)| game.native_text_width(t)).fold(0.0f32, f32::max) + 8.0;
+        let w = lines.iter().map(|(t, _)| game.native_text_width(batch, t)).fold(0.0f32, f32::max) + 8.0;
         let h = lines.len() as f32 * 10.0 + 6.0;
         let (x, y) = corners.place(Corner::TopLeft, w, h);
         game.native_fill(batch, [x, y, w, h], 0x9000_0000);
@@ -4852,7 +4747,7 @@ pub(super) fn hud(game: &mut Game<'_>, batch: &mut HudBatch, corners: &mut Corne
         let rows: Vec<_> = list.iter().filter(|m| m.missing > 0).take(14).collect();
         let title = if rows.is_empty() { "Materials: nothing missing".to_string() } else { "Materials (missing / carried)".to_string() };
         let text = |m: &Material| format!("{}  {} / {}", short(&m.item), m.missing, m.available);
-        let w = rows.iter().map(|m| game.native_text_width(&text(m)) + 16.0).fold(game.native_text_width(&title), f32::max) + 10.0;
+        let w = rows.iter().map(|m| game.native_text_width(batch, &text(m)) + 16.0).fold(game.native_text_width(batch, &title), f32::max) + 10.0;
         let h = 16.0 + rows.len() as f32 * 13.0;
         let (x, y) = corners.place(Corner::TopRight, w, h);
         game.native_fill(batch, [x, y, w, h], 0x9000_0000);
@@ -4881,7 +4776,7 @@ struct FileInfo {
 
 fn file_info(dir: &std::path::Path, name: &str) -> Result<FileInfo, String> {
     let bytes = std::fs::read(dir.join(name)).map_err(|e| e.to_string())?;
-    let s = horizonmatica_core::formats::summary(&bytes)?;
+    let s = mod_horizonmatica::core::formats::summary(&bytes)?;
     Ok(FileInfo {
         name: if s.name.is_empty() { name.to_string() } else { s.name },
         format: s.format.name(),
@@ -4921,7 +4816,7 @@ fn file_info_cached(name: &str, key: &str) -> Option<Result<FileInfo, String>> {
 
 /// The block count of an area of `size`, or a note when it doesn't fit a number.
 fn volume_text(size: [i32; 3]) -> String {
-    horizonmatica_core::area::volume(size).map_or("more than 2^64".to_string(), |v| v.to_string())
+    mod_horizonmatica::core::area::volume(size).map_or("more than 2^64".to_string(), |v| v.to_string())
 }
 
 fn human_size(bytes: u64) -> String {
@@ -5045,7 +4940,7 @@ fn tab_load(game: &mut Game<'_>, ui: &mut menus::Ui<'_>, r: menus::Rect) {
             s.ui_files_at = Some(std::time::Instant::now());
             s.ui_files = schematics_dir()
                 .map(|dir| {
-                    horizonmatica_core::list_schematics(&dir)
+                    mod_horizonmatica::core::list_schematics(&dir)
                         .into_iter()
                         .map(|n| {
                             let size = std::fs::metadata(dir.join(&n)).map_or(0, |m| m.len());

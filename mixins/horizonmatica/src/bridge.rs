@@ -9,7 +9,7 @@
 // world's depth (`RenderNeeds::world_depth`) hides what is behind terrain, unless `through`.
 // The highlights (`marks`) come in a second pass over all of it, never tested against the world.
 
-use crate::mesher::Vertex;
+use mod_render::render::{Vertex, WorldDrawn, wgpu};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use wgpu::util::DeviceExt;
@@ -373,7 +373,7 @@ impl Gpu {
 }
 
 /// Draws the scene over the world (the `world_drawn` hook).
-pub fn draw(world: &mut super::WorldDrawn<'_>) {
+pub fn draw(world: &mut WorldDrawn<'_>) {
     let mut scene = SCENE.lock().unwrap_or_else(|e| e.into_inner());
     let Some(scene) = scene.as_mut() else { return };
     if !scene.visible || (scene.sections.is_empty() && scene.marks.is_empty()) {

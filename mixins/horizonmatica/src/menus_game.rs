@@ -1,17 +1,5 @@
-// horizon-menus, game side: a module a mod inserts into `crates/horizon-client/src/game.rs`
-// (`[[module]]`, name `<mod id>_menus`), next to its own crate copy of `horizon-menus`
-// (`[[crate]] id = "menus"`). tools/vendor_menus.py copies both into a bundle and names the
-// crate `<mod id>_menus`; `horizonmatica_menus` below is replaced with that name.
-//
-// Two ways to show a mod's menu:
-//
-// - **The mod's page** in Options > Mods (`GameStore`, `open_page`): buttons only, official
-//   hooks only.
-// - **A screen of its own** (`open_screen`, `draw`, `Ui`): drawn with the game's own widgets
-//   (buttons, sliders, edit boxes, scroll lists, tooltips, item icons). It takes the place of the
-//   Debug Options screen (F3+F6) while open: that screen's draw and input functions are hooked
-//   (hooks/*.rs) and do nothing of their own while the game hasn't opened it (`debug_options` is
-//   None). The game doesn't pause for it, as a mod's menu in Java doesn't.
+// Horizonmatica's adaptation of horizon-menus' game-side screen. It uses Horizon widgets and
+// takes the place of the Debug Options screen while open, without pausing the game.
 
 use super::{Game, Screen};
 use horizon_client::hud::{HudBatch, rgba};
@@ -19,16 +7,16 @@ use horizon_client::text::Text;
 use horizon_client::ui::{self, EditBox};
 // Re-exported for the mod; a mod uses some of them.
 #[allow(unused_imports)]
-pub(crate) use horizonmatica_menus::{Control, Entry, Event, Menu, Nav, Setting, Store};
+pub(crate) use mod_horizonmatica::menus::{Control, Entry, Event, Menu, Nav, Setting, Store};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ops::ControlFlow;
 use winit::event::{ElementState, KeyEvent};
 use winit::keyboard::{KeyCode, PhysicalKey};
 
-// ---------------------------------------------------------------- settings store, mod page
+// ---------------------------------------------------------------- settings store
 
-/// Horizon's settings of mod `id` (`native_setting` / `native_set_setting`, saved by the game).
+/// Horizon's persisted settings for mod `id`.
 pub(super) struct GameStore<'a, 'g> {
     pub(super) game: &'a Game<'g>,
     pub(super) id: &'a str,
@@ -36,36 +24,15 @@ pub(super) struct GameStore<'a, 'g> {
 
 impl Store for GameStore<'_, '_> {
     fn get(&self, key: &str) -> Option<String> {
-        self.game.native_setting(self.id, key)
+        self.game.setting(self.id, key)
     }
     fn set(&mut self, key: &str, value: &str) {
-        self.game.native_set_setting(self.id, key, value);
+        self.game.set_setting(self.id, key, value);
     }
 }
 
-/// Shift held: clicks step numbers and choices backwards.
-#[allow(dead_code)]
-pub(super) fn reverse(game: &Game<'_>) -> bool {
-    game.keys.contains(&KeyCode::ShiftLeft) || game.keys.contains(&KeyCode::ShiftRight)
-}
-
-/// Opens mod `id`'s page in Options > Mods over the game; Esc goes back to the pause menu, as
-/// after Horizon's own pages opened in a world. False when there is no such page (not in a world,
-/// or the mod isn't listed).
-#[allow(dead_code)]
-pub(super) fn open_page(game: &mut Game<'_>, id: &str) -> bool {
-    if game.title.is_some() {
-        return false;
-    }
-    let find = |game: &Game<'_>| game.settings.mods.installed.iter().position(|m| m.id == id && m.native.is_some());
-    if find(game).is_none() {
-        game.list_native_mods();
-    }
-    let Some(i) = find(game) else { return false };
-    game.capture(false);
-    game.open_options_at(false, horizon_client::options_ui::Page::NativeMod(i));
-    game.native_settings_refresh(i);
-    true
+fn reverse(game: &Game<'_>) -> bool {
+    game.keys.raw(&KeyCode::ShiftLeft) || game.keys.raw(&KeyCode::ShiftRight)
 }
 
 // ---------------------------------------------------------------- the screen: state and hooks
@@ -208,7 +175,7 @@ pub(super) fn hook_key(game: &mut Game<'_>, event: &KeyEvent) -> ControlFlow<()>
             return ControlFlow::Break(());
         }
         let shortcut = game.edit_shortcut(event);
-        let ctrl = game.keys.contains(&KeyCode::ControlLeft) || game.keys.contains(&KeyCode::ControlRight);
+        let ctrl = game.keys.raw(&KeyCode::ControlLeft) || game.keys.raw(&KeyCode::ControlRight);
         let shift = reverse(game);
         let types = game.types_text();
         let mut edit = st(|s| s.edits.remove(&id));

@@ -1,5 +1,5 @@
-# Development workspace only: lets `cargo test` run on the mod's own crate outside Horizon.
-# The bundle that Horizon builds is `mixins/horizonmatica/` (horizon-mixin.toml); this file is not part of it.
+# Standalone tests for the libraries shipped with the mod.
 [workspace]
 resolver = "2"
-members = ["mixins/horizonmatica/core", "libs/horizon-menus/core"]
+members = ["mixins/horizonmatica/src/core", "mixins/horizonmatica/src/menus"]
+exclude = ["mixins/horizonmatica"]
