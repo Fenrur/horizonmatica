@@ -24,7 +24,7 @@ use mod_api::{
 use world::World;
 
 pub const ID: &str = "horizonmatica";
-pub const VERSION: &str = "0.5.0";
+pub const VERSION: &str = "0.5.1";
 /// The data version of the game the mod is pinned to (26.3), written into saved files.
 pub const DATA_VERSION: i32 = 5023;
 
