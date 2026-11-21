@@ -25,9 +25,9 @@ Usage: put schematics into `schematics/` next to `options.txt` of your instance 
 
 ## What it does and doesn't do
 - **Reads** only files in the instance's `schematics/` folder, and creates that folder if it's missing.
-- **Writes** only the `.litematic` files you save (`/hm save`), into that folder. Settings and remembered placements go through Horizon's mod settings.
+- **Writes** only the `.litematic` files you save (`/hm save`), into that folder. Settings go through Horizon's mod settings, remembered placements into the mod's own data folder that Horizon gives it.
 - **Network:** no connections of its own. The only thing sent to a server is what the printer and easy place do: the same block-placing clicks a player would make (with the matching look direction), and hotbar slot changes.
-- **"Open folder"** in the menu opens the schematics folder in your file manager through Horizon's own function.
+- **"Open folder"** in the menu (and `/hm folder`) starts the system's file manager on the schematics folder (`explorer`, `open` or `xdg-open`); nothing else is ever started.
 - No telemetry, no downloads, no code run from schematic files. Schematics are parsed as data only.
 
 ⚠️ On other people's servers, automatic placing may break the rules or trip anti-cheat. The printer is off until you turn it on (`K` or `/hm printer on`). The *air place* options of the printer and easy place (off by default) are noticed by anti-cheat plugins such as Grim.
