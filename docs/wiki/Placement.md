@@ -76,7 +76,7 @@ or below a height (`/hm layer above <y>`, `/hm layer below <y>`), and a range (`
 ## Easy place
 
 Easy place is building by hand with the schematic as a guard. Turn it on with **Easy place** at the bottom left of this
-tab, `/hm easyplace`, or a key of your choice on the [Keys tab](Keys.md#keys-tab).
+tab, `/hm easyplace`, or a key of your choice in Options › Controls (see [Keys](Keys.md)).
 
 Look at a ghost block: the block it needs is taken in hand by itself, from the hotbar, from your inventory, or in
 creative out of nothing. Hold the **right mouse button** and the mod places it, facing the right way, and goes on with

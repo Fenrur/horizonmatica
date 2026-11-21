@@ -61,22 +61,26 @@ building them.
 2. Build the mod into your instance, either from this folder:
 
    ```
-   horizon-launcher native-build <path to this repository>/mixins --trust-native-code
+   horizon-launcher native-build <path to this repository>/hmod --trust-native-code
    ```
 
-   or in the launcher: **Mods** → install a native mod from a folder (or a `.hnmod` file) → **Build**.
-   The first build downloads Rust and takes 20–30 minutes; later builds are faster.
-3. To get a package: `python tools/package.py` writes `dist/horizonmatica-0.3.3.hnmod`.
+   or in the launcher: **Mods** → install a native mod from a folder (or a `.hmod` file) → **Build**.
+   The first build downloads Rust and takes a while; later builds take a minute or two.
+3. To get a package: `python tools/package.py` writes `dist/horizonmatica-0.4.0.hmod` (with
+   `cargo horizon-mod build`; the same tag always gives the same file).
 
-**Version:** the mod uses game internals (block models, placement prediction, the data fixer, the Debug Options
-screen for its menu), so it is pinned to one Horizon commit: `horizon_revision` in
-`mixins/horizonmatica/horizon-mixin.toml`, currently **Nightly 2026-11-13 (`9f42064`)**, which it is
-checked against. It needs the render hooks `world_drawn`/`render_needs` (API 58+). For another Nightly, set its
-commit (`python tools/package.py --horizon <commit>`) and build again.
+Since 0.4.0 Horizonmatica is a `.hmod` built on Horizon's mod API (`hmod/horizon-mod.toml`). Launchers from 0.2.70 on
+load only `.hmod` packages, so the older `.hnmod` releases (up to 0.3.3) no longer install there.
+
+**Version:** most of the mod goes through the mod API, but the overlay (the game's renderer and full block models),
+the printer and easy place (clicking a chosen face, the game's placement prediction) and the data fixer need game
+internals (the `[[native.mixin]]` rows of `hmod/horizon-mod.toml`). So it is pinned to one Horizon build:
+`horizon` in `[native]`, currently **Nightly 2026-11-20 (`0a875da`)**. For another Nightly, run
+`cargo horizon-mod update --horizon <commit>` in `hmod/` and build again.
 
 ### Verifying downloads
 
-Every release `.hnmod` is signed with [minisign](https://jedisct1.github.io/minisign/); the signature is the
+Every release package (`.hmod`, before 0.4.0 `.hnmod`) is signed with [minisign](https://jedisct1.github.io/minisign/); the signature is the
 `.minisig` asset next to it. The public key is [`minisign.pub`](minisign.pub):
 
 ```
@@ -86,7 +90,7 @@ RWS+BRoCJslNCFapck3cbG2VFQcjlr1MUH5m3+CWA8zhJecoBoja7X94
 Check a download with:
 
 ```
-minisign -Vm horizonmatica-0.3.3.hnmod -P RWS+BRoCJslNCFapck3cbG2VFQcjlr1MUH5m3+CWA8zhJecoBoja7X94
+minisign -Vm horizonmatica-0.4.0.hmod -P RWS+BRoCJslNCFapck3cbG2VFQcjlr1MUH5m3+CWA8zhJecoBoja7X94
 ```
 
 ## Usage
@@ -200,7 +204,8 @@ Set it up in the menu's **Tool** tab: which item, its reach (up to 256 blocks), 
 the one in front of it (handy for selecting the air above a floor), and whether water and lava stop it (off: it
 goes through to the ground). `/hm tool off` turns it off, `/hm tool <item>` takes another item.
 
-Keys (the defaults; any action can be bound on the menu's **Keys** tab):
+Keys (the defaults; every action is a key mapping of the game, so it can be bound in **Options › Controls**, where
+the ones without a default key are listed too):
 
 | Key | Action |
 |---|---|
@@ -230,8 +235,8 @@ The printer pauses while move mode is on.
 ### The menu (M)
 
 **M** opens Horizonmatica's own screen, drawn with the game's widgets (buttons, sliders, edit boxes, scroll lists,
-tooltips, item icons) by [horizon-menus](libs/horizon-menus/README.md). The game keeps running behind it. **Esc**,
-**M** or **Done** close it, **1–8** switch tabs, the **Credits** button at the top left shows who made the originals.
+tooltips, item icons). The game keeps running behind it. **Esc**,
+**M** or **Done** close it, **1–7** switch tabs, the **Credits** button at the top left shows who made the originals.
 
 | Tab | Contents |
 |---|---|
@@ -242,19 +247,15 @@ tooltips, item icons) by [horizon-menus](libs/horizon-menus/README.md). The game
 | Printer | On/off, blocks placed, speed and reach as sliders, air place |
 | Display | Overlay and HUD settings (opacity, render radius or view distance, face limit, water and lava), and what the overlay holds right now |
 | Materials | Material list with item icons: missing, total, carried; copy it for a spreadsheet; the HUD list on/off |
-| Keys | Every action with its key: click one and press the new key, or reset them all |
 
-When the screen can't open (over another screen, say), M opens the mod's page in **Options › Mods** instead, with the
-same settings as buttons (Shift + click steps backwards).
-
-Under the hood the screen borrows the place of the Debug Options screen (F3+F6): its draw and input functions are
-hooked and do nothing of their own while the game hasn't opened that screen itself, and the game doesn't pause for it.
+The settings are also on the mod's page in **Options › Mods** (Horizon builds it from the mod's registered
+settings). Settings from 0.3 are carried over on the first start.
 
 ### Printer (auto-build)
 
 While the printer is on, it places one missing block within reach every few ticks, from the bottom up and only in
 the layers shown. For each block it tries click points on the neighbouring faces and asks Horizon's own placement
-logic (`placement_state`, vanilla's `getStateForPlacement`) what that click would place. It only clicks when exactly
+logic (vanilla's `getStateForPlacement`) what that click would place. It only clicks when exactly
 the wanted state comes out (stairs the right way round, top/bottom slabs, furnaces, logs...).
 
 - **Survival:** the item has to be in the hotbar. If it is only in the inventory, the HUD says so.
@@ -293,28 +294,28 @@ the wanted state comes out (stairs the right way round, top/bottom slabs, furnac
 ## Layout
 
 ```
-mixins/horizonmatica/          the bundle Horizon builds in
-  horizon-mixin.toml           hooks (tick, frame, hud, key, wheel, command(s), mods, settings, world_drawn,
-                               render_needs) and the menu screen's injections
-  *.rs                         thin helpers, one per hook
-  runtime.rs                   game side: commands, HUD, verifier scan, overlay geometry, printer, menu screen
-  bridge.rs                    render side (in horizon-client-render): the overlay's own GPU pass
-  core/                        a crate of its own without the game, with unit tests: NBT, file formats, bit
+hmod/                          the mod (a .hmod project: horizon-mod.toml, Cargo.toml, src/, assets/)
+  horizon-mod.toml             the manifest: the pinned Horizon build and the [[native.mixin]] rows
+  src/lib.rs                   the mod API hooks: ticks, HUD, commands, keys, mouse, the menu screen
+  src/runtime.rs               commands, loading and restoring, verifier, HUD, move mode, tool, saving areas
+  src/menu.rs, ui.rs           the menu (M) and its widgets, drawn on the game's DrawContext
+  src/settings.rs, store.rs    registered settings (Options › Mods), the remembered placements per world
+  src/overlay.rs, hands.rs     the overlay's scene, the printer and easy place
+  src/native/                  the parts built into the game: overlay GPU pass, block models, placement clicks
+  src/core/                    a crate of its own without the game, with unit tests: NBT, file formats, bit
                                arrays, rotation/mirroring, verifier, material list, printer planning
-  menus/, menus_*.rs           copy of horizon-menus with its screen hooks (don't edit: vendor_menus.py)
-libs/horizon-menus/            the menu library (git submodule: github.com/keksi2k/horizon-menus)
+  assets/                      the lang file (key and setting names)
 tools/make_icon.py             renders icon.png
-tools/package.py               packs the .hnmod (and checks the horizon-menus copy is current);
+tools/package.py               packs the .hmod (cargo horizon-mod build) and checks it;
                                --sign also signs it with minisign (asks for the key's password)
 docs/wiki/                     the wiki: every tab, button and command
 minisign.pub                   the public key release files are signed with
 horizon-registry.toml          the project's page in the Horizon mod registry (read from the newest release's tag)
 ```
 
-Clone with `git clone --recursive`, or run `git submodule update --init` afterwards. After updating the library:
-`python libs/horizon-menus/tools/vendor_menus.py mixins/horizonmatica horizonmatica`.
-
-Tests: `cargo test -p horizonmatica-core -p horizon-menus`. A test schematic:
-`cargo run -p horizonmatica-core --example sample -- sample_hut.litematic`.
+Tests: `cargo test -p horizonmatica-core`. A test schematic:
+`cargo run -p horizonmatica-core --example sample -- sample_hut.litematic`. In `hmod/`, `cargo horizon-mod check`
+checks the mod against the pinned SDK (it also checks for `wasm32-unknown-unknown`:
+`rustup target add wasm32-unknown-unknown`).
 
 License: MIT. No code taken from Litematica; the file format and the behaviour are re-created.

@@ -2,8 +2,8 @@
 
 [Back to the overview](Home.md)
 
-You can bind every action to a key on the [Keys tab](#keys-tab) of the menu. Keys you changed in Options › Mods before
-0.3.0 are kept as the starting point.
+Every action is one of the game's key mappings: bind it in **Options › Controls**, like the game's own keys. (Up to
+0.3.3 this was the menu's Keys tab; keys bound there are not carried over to 0.4.0.)
 
 The defaults:
 
@@ -19,23 +19,17 @@ The defaults:
 | **Middle mouse button** | Takes the block the schematic wants where you look, see below | — |
 
 No default key: selection tool, easy place, reload, rotate, mirror, move to me, show or hide, select next or previous
-placement, unload, area corners and clear, copy material list, open schematics folder. Bind them on the Keys page.
+placement, unload, area corners and clear, copy material list, open schematics folder. Bind them in Options › Controls.
 
 ## In the menu
 
 | Key | Action |
 |---|---|
-| **1** to **8** | Switch tabs (while no edit box is being typed in) |
+| **1** to **7** | Switch tabs (while no edit box is being typed in) |
 | **M**, **Esc** | Close the menu |
 
-## Keys tab
-
-Click the key next to an action, then press the new key. **Backspace** or **Delete** clears it, and a second click on
-the button cancels. **Esc** closes the menu, which cancels too. A key that was already in use moves to the new action.
-**Reset all keys** brings back the defaults.
-
-Only keyboard keys can be bound. Things that need a file or a name, such as loading a schematic or `/hm save <name>`,
-have no key. In the menu itself **M** and **1** to **8** keep their meaning whatever is bound.
+Things that need a file or a name, such as loading a schematic or `/hm save <name>`, have no key. In the menu itself
+**M** and **1** to **7** keep their meaning whatever is bound.
 
 ## Move mode
 

@@ -1,5 +1,6 @@
-# Development workspace only: lets `cargo test` run on the mod's own crate outside Horizon.
-# The bundle that Horizon builds is `mixins/horizonmatica/` (horizon-mixin.toml); this file is not part of it.
+# Development workspace only: lets `cargo test` run on the mod's game-independent crates outside Horizon.
+# The mod itself is `hmod/` (horizon-mod.toml); the launcher builds it against the pinned SDK.
 [workspace]
 resolver = "2"
-members = ["mixins/horizonmatica/core", "libs/horizon-menus/core"]
+members = ["hmod/src/core"]
+exclude = ["hmod"]

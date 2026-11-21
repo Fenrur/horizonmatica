@@ -2,7 +2,7 @@
 
 Every button, slider and switch of the menu, what it does, and the command that does the same (where there is one).
 
-Press **M** in game to open the menu. **1–8** switch tabs; **Esc**, **M** or **Done** close it. The game keeps running
+Press **M** in game to open the menu. **1–7** switch tabs; **Esc**, **M** or **Done** close it. The game keeps running
 behind it. All commands start with `/horizonmatica` or the short form `/hm`.
 
 ## The tabs
@@ -16,7 +16,6 @@ behind it. All commands start with `/horizonmatica` or the short form `/hm`.
 | 5 | [Printer](Printer.md) | The auto-builder |
 | 6 | [Display](Display.md) | How the overlay and the HUD look, and how far the overlay reaches |
 | 7 | [Materials](Materials.md) | What the selected placement still needs; highlight missing and wrong blocks |
-| 8 | [Keys](Keys.md#keys-tab) | Bind any action to a key |
 | — | Credits (button at the top left) | The originals and their authors. **Show the credits in chat** does the same as `/hm credits` |
 
 Every tab also has **Done** at the bottom right, which closes the menu.
@@ -24,7 +23,7 @@ Every tab also has **Done** at the bottom right, which closes the menu.
 ## Reference
 
 - [Commands](Commands.md): every command in one list
-- [Keys](Keys.md): the keys, and the controls of move mode
+- [Keys](Keys.md): the keys (bound in Options › Controls), and the controls of move mode
 
 ## Words used here
 

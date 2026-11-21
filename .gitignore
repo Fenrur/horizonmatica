@@ -2,5 +2,6 @@
 /dist
 /_ref
 Cargo.lock
+!/hmod/Cargo.lock
 *.litematic
 __pycache__/
