@@ -14,7 +14,7 @@
 use crate::nbt::{self, Tag};
 use crate::bitarray::BitArray;
 use crate::schematic::{BlockState, MAX_UNPACKED, MAX_VOLUME, Metadata, Region, Schematic, read_state, vec3};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::sync::OnceLock;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -322,44 +322,15 @@ fn structure(root: &Tag) -> Result<Schematic, String> {
 
 // ---------------------------------------------------------------- MCEdit
 
-struct Legacy {
-    exact: HashMap<u32, (String, BTreeMap<String, String>)>,
-    /// A block id's first registered state: ids without their own line use it.
-    first: HashMap<u32, u32>,
-}
+/// The 1.13 state of a 1.12 `blockId << 4 | data`, or `None` for an unknown id. The table
+/// belongs to the game (vanilla's `BlockStateData`): the game side installs this lookup.
+pub type LegacyLookup = fn(id: u32) -> Option<BlockState>;
 
-fn legacy() -> &'static Legacy {
-    static TABLE: OnceLock<Legacy> = OnceLock::new();
-    TABLE.get_or_init(|| {
-        let mut exact = HashMap::new();
-        let mut first = HashMap::new();
-        for line in crate::legacy_blocks::TABLE.lines() {
-            if line.starts_with('#') || line.is_empty() {
-                continue;
-            }
-            let mut f = line.split('\t');
-            let (Some(id), Some(name)) = (f.next().and_then(|v| v.parse::<u32>().ok()), f.next()) else { continue };
-            let props = f
-                .next()
-                .unwrap_or("")
-                .split(';')
-                .filter_map(|kv| kv.split_once('='))
-                .map(|(k, v)| (k.to_string(), v.to_string()))
-                .collect();
-            first.entry(id >> 4).or_insert(id);
-            exact.insert(id, (name.to_string(), props));
-        }
-        Legacy { exact, first }
-    })
-}
+static LEGACY: OnceLock<LegacyLookup> = OnceLock::new();
 
-/// The 1.13 state of a 1.12 `blockId << 4 | data`.
-pub fn legacy_state(id: u32) -> BlockState {
-    let t = legacy();
-    match t.exact.get(&id).or_else(|| t.first.get(&(id >> 4)).and_then(|f| t.exact.get(f))) {
-        Some((name, properties)) => BlockState { name: name.clone(), properties: properties.clone() },
-        None => BlockState::air(),
-    }
+/// From the game side, once: without it MCEdit files can't be read.
+pub fn install_legacy(lookup: LegacyLookup) {
+    let _ = LEGACY.set(lookup);
 }
 
 const COLORS: [&str; 16] = [
@@ -438,6 +409,8 @@ fn mcedit(root: &Tag) -> Result<Schematic, String> {
             entities.insert([x as i32, y as i32, z as i32], t.clone());
         }
     }
+    let lookup = *LEGACY.get().ok_or("MCEdit files need the game's block table")?;
+    let mut known: HashMap<u32, BlockState> = HashMap::new();
     let mut states: Vec<BlockState> = Vec::with_capacity(volume);
     for y in 0..size[1] {
         for z in 0..size[2] {
@@ -448,7 +421,8 @@ fn mcedit(root: &Tag) -> Result<Schematic, String> {
                     let a = a as u8;
                     id |= u32::from(if i & 1 == 0 { a & 0x0F } else { a >> 4 }) << 8;
                 }
-                let mut s = legacy_state(id << 4 | u32::from(data[i] as u8 & 0x0F));
+                let legacy = id << 4 | u32::from(data[i] as u8 & 0x0F);
+                let mut s = known.entry(legacy).or_insert_with(|| lookup(legacy).unwrap_or_else(BlockState::air)).clone();
                 let be = entities.get(&[x, y, z]);
                 if s.name == "%%FILTER_ME%%" {
                     s = skull(&s, be);
@@ -546,6 +520,25 @@ fn fix_legacy(size: [i32; 3], states: &mut [BlockState]) {
 mod tests {
     use super::*;
 
+    /// The few lines of the game's table these tests use (the game installs the real one).
+    fn stub_legacy(id: u32) -> Option<BlockState> {
+        let (name, props): (&str, &[(&str, &str)]) = match id {
+            867 => ("minecraft:chest", &[("facing", "south"), ("type", "single")]),
+            1027 => (
+                "minecraft:oak_door",
+                &[("facing", "north"), ("half", "lower"), ("hinge", "right"), ("open", "false"), ("powered", "false")],
+            ),
+            1033 => (
+                "minecraft:oak_door",
+                &[("facing", "east"), ("half", "upper"), ("hinge", "right"), ("open", "false"), ("powered", "false")],
+            ),
+            2800 => ("minecraft:sunflower", &[("half", "lower")]),
+            2808 => ("minecraft:peony", &[("half", "upper")]),
+            _ => return None,
+        };
+        Some(BlockState::new(name, props))
+    }
+
     fn compound(entries: Vec<(&str, Tag)>) -> Tag {
         Tag::Compound(entries.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
     }
@@ -618,6 +611,7 @@ mod tests {
 
     #[test]
     fn mcedit_legacy() {
+        install_legacy(stub_legacy);
         // 2 wide, 2 high, 1 long: oak door (lower facing north + upper hinge right),
         // granite and a sunflower's upper half over its lower half.
         let blocks: Vec<i8> = vec![64, -81, 64, -81]; // 175 = double_plant, as i8
@@ -643,13 +637,11 @@ mod tests {
         assert_eq!(r.state([1, 0, 0]).name, "minecraft:sunflower");
         assert_eq!(r.state([1, 1, 0]).name, "minecraft:sunflower");
         assert_eq!(r.state([1, 1, 0]).prop("half"), Some("upper"));
-        assert_eq!(legacy_state(1 << 4 | 1).name, "minecraft:granite");
-        // An id without its own line: the block's first state.
-        assert_eq!(legacy_state(1 << 4 | 15).name, "minecraft:stone");
     }
 
     #[test]
     fn mcedit_chests_and_colors() {
+        install_legacy(stub_legacy);
         assert_eq!(recolor("minecraft:red_bed", "light_blue"), "minecraft:light_blue_bed");
         assert_eq!(recolor("minecraft:light_gray_wall_banner", "black"), "minecraft:black_wall_banner");
         // Two chests facing south (data 3) side by side along x.

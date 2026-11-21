@@ -18,9 +18,8 @@ show schematics as ghost blocks, check your build against them, get a material l
 >   (Aleksi Lassila), maintained by Sakura-Ryoko. The printer follows its approach: the look is sent to the server
 >   only with the click, the camera never moves.
 > - **[Horizon](https://github.com/horizon-rust/horizon)** by the horizon-rust team: the game, the mod hooks, the
->   placement logic and the data fixer Horizonmatica uses. The table that maps old `.schematic` block ids
->   (`core/src/legacy_blocks.rs`) comes from Horizon's `block_state_data.txt`, which is generated from vanilla's
->   `BlockStateData` (Horizon is MIT licensed).
+>   placement logic and the data fixer Horizonmatica uses, also for old `.schematic` block ids (the game's own
+>   `BlockStateData` table; nothing of it is bundled).
 > - File formats: [Sponge Schematic](https://github.com/SpongePowered/Schematic-Specification) (`.schem`, WorldEdit),
 >   MCEdit (`.schematic`), Mojang's structure files (`.nbt`).
 >

@@ -7,7 +7,6 @@
 pub mod area;
 pub mod bitarray;
 pub mod formats;
-mod legacy_blocks;
 pub mod materials;
 pub mod nbt;
 pub mod placement;

@@ -278,7 +278,7 @@ impl horizonmatica::hands::Hands for Hands<'_, '_> {
 
 /// Once a client tick (the `tick_pre` mixin).
 pub fn tick(game: &mut super::Game<'_>) {
-    horizonmatica::fix::install(fix_state, horizon_world::DATA_VERSION);
+    horizonmatica::fix::install(fix_state, horizon_world::DATA_VERSION, legacy_state);
     {
         let game = &*game;
         horizonmatica::overlay::tick(game, &Ops(game));
@@ -299,6 +299,21 @@ pub fn mouse(game: &mut super::Game<'_>, button: winit::event::MouseButton, pres
 
 // ---------------------------------------------------------------- old schematics
 
+/// A 1.12 `blockId << 4 | data` as a 1.13 state (`horizonmatica::fix::Legacy`): the game's data
+/// fixer turns an old falling block's `TileID`/`Data` into its `BlockState` with vanilla's
+/// `BlockStateData` table.
+fn legacy_state(id: u32) -> Option<(String, Vec<(String, String)>)> {
+    use horizon_core::nbt::Tag;
+    let mut tag = Tag::compound([
+        ("id", Tag::String("minecraft:falling_block".into())),
+        ("TileID", Tag::Int((id >> 4) as i32)),
+        ("Data", Tag::Byte((id & 0x0F) as i8)),
+    ]);
+    // 1.12.2's data version, up to the flattening (1.13's first snapshots).
+    horizon_world::datafix::update(horizon_world::datafix::schema::Ty::Entity, &mut tag, 1343, 1451);
+    state_of(tag.get("BlockState")?)
+}
+
 /// One block state through the game's data fixer (`horizonmatica::fix::Fixer`).
 fn fix_state(name: &str, properties: &[(String, String)], from: i32) -> Option<(String, Vec<(String, String)>)> {
     let name_tag = horizon_core::nbt::Tag::String(name.into());
@@ -309,6 +324,11 @@ fn fix_state(name: &str, properties: &[(String, String)], from: i32) -> Option<(
         horizon_core::nbt::Tag::compound([("Name", name_tag), ("Properties", horizon_core::nbt::Tag::compound(props))])
     };
     horizon_world::datafix::update(horizon_world::datafix::schema::Ty::BlockState, &mut tag, from, horizon_world::DATA_VERSION);
+    state_of(&tag)
+}
+
+/// A block state tag as name and properties.
+fn state_of(tag: &horizon_core::nbt::Tag) -> Option<(String, Vec<(String, String)>)> {
     // The fixer's newest block state format names the fields `id` and `properties`.
     let Some(horizon_core::nbt::Tag::String(name)) = tag.get("id").or_else(|| tag.get("Name")) else { return None };
     let mut out = Vec::new();
