@@ -814,12 +814,19 @@ fn tab_display(w: &World<'_>, ui: &mut Ui<'_>, r: Rect) {
     );
     ui.text_fit(r[0], r[1] + r[3] - 22.0, r[2], &line, if full { 0xFFFF55 } else { 0xA0A0A0 });
     ui.text_fit(r[0], r[1] + r[3] - 11.0, r[2], "Beyond the menu: /hm radius <blocks>, /hm faces <n>|none", 0x808080);
-    let mut y = r[1];
-    for (title, keys) in [("World overlay", DISPLAY), ("HUD", HUD)] {
+    // The settings above the two lines, scrolled where the window is too low for them (720p,
+    // a large GUI scale). A grid row is 24 high (settings_grid), a title 13, the gap 4.
+    let sections = [("World overlay", DISPLAY), ("HUD", HUD)];
+    let area = [r[0], r[1], r[2], r[3] - 26.0];
+    let content: f32 = sections.iter().map(|(_, keys)| 13.0 + keys.len().div_ceil(2) as f32 * 24.0 + 4.0).sum::<f32>() - 4.0;
+    let wd = if content > area[3] { area[2] - 10.0 } else { area[2] };
+    let mut y = ui.scroll_begin("display", area, content);
+    for (title, keys) in sections {
         ui.text(r[0], y + 2.0, title, 0xFFFFFF);
         y += 13.0;
-        y += settings_grid(ui, w, keys, [r[0], y, r[2], 0.0], 2) + 4.0;
+        y += settings_grid(ui, w, keys, [r[0], y, wd, 0.0], 2) + 4.0;
     }
+    ui.scroll_end("display", area, content);
 }
 
 fn tab_materials(w: &World<'_>, ui: &mut Ui<'_>, r: Rect) {

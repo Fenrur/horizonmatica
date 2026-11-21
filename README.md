@@ -66,7 +66,7 @@ building them.
 
    or in the launcher: **Mods** → install a native mod from a folder (or a `.hmod` file) → **Build**.
    The first build downloads Rust and takes a while; later builds take a minute or two.
-3. To get a package: `python tools/package.py` writes `dist/horizonmatica-0.4.0.hmod` (with
+3. To get a package: `python tools/package.py` writes `dist/horizonmatica-0.4.1.hmod` (with
    `cargo horizon-mod build`; the same tag always gives the same file).
 
 Since 0.4.0 Horizonmatica is a `.hmod` built on Horizon's mod API (`hmod/horizon-mod.toml`). Launchers from 0.2.70 on
@@ -90,7 +90,7 @@ RWS+BRoCJslNCFapck3cbG2VFQcjlr1MUH5m3+CWA8zhJecoBoja7X94
 Check a download with:
 
 ```
-minisign -Vm horizonmatica-0.4.0.hmod -P RWS+BRoCJslNCFapck3cbG2VFQcjlr1MUH5m3+CWA8zhJecoBoja7X94
+minisign -Vm horizonmatica-0.4.1.hmod -P RWS+BRoCJslNCFapck3cbG2VFQcjlr1MUH5m3+CWA8zhJecoBoja7X94
 ```
 
 ## Usage
@@ -250,6 +250,9 @@ tooltips, item icons). The game keeps running behind it. **Esc**,
 
 The settings are also on the mod's page in **Options › Mods** (Horizon builds it from the mod's registered
 settings). Settings from 0.3 are carried over on the first start.
+
+**Languages:** the names of the settings (Options › Mods) and of the keys (Options › Controls) follow the game's
+language in English, French, German and Spanish. The menu itself, the HUD and the chat messages are in English for now.
 
 ### Printer (auto-build)
 
