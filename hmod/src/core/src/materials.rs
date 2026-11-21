@@ -120,9 +120,10 @@ pub fn stacks(count: u64, stack: u64) -> String {
 }
 
 /// The list as a table for a spreadsheet: tab-separated with a header row, which Excel and others
-/// split into columns when pasted. `name` gives an item's readable name.
-pub fn table(list: &[Material], name: impl Fn(&str) -> String) -> String {
-    let mut out = String::from("Item\tMissing\tTotal\tCarried\tTo fetch\tItem ID\r\n");
+/// split into columns when pasted. `header` is the six column names, tab-separated (in the
+/// player's language); `name` gives an item's readable name.
+pub fn table(list: &[Material], header: &str, name: impl Fn(&str) -> String) -> String {
+    let mut out = format!("{header}\r\n");
     for m in list {
         out += &format!("{}\t{}\t{}\t{}\t{}\t{}\r\n", name(&m.item), m.missing, m.total, m.available, m.to_fetch(), m.item);
     }
@@ -165,7 +166,7 @@ mod tests {
     #[test]
     fn table_has_a_header_and_a_row_per_item() {
         let list = [Material { item: "minecraft:stone".into(), total: 10, missing: 7, available: 3 }];
-        let text = table(&list, |_| "Stone".to_string());
+        let text = table(&list, "Item\tMissing\tTotal\tCarried\tTo fetch\tItem ID", |_| "Stone".to_string());
         assert_eq!(text, "Item\tMissing\tTotal\tCarried\tTo fetch\tItem ID\r\nStone\t7\t10\t3\t4\tminecraft:stone\r\n");
     }
 }

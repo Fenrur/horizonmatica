@@ -251,8 +251,14 @@ tooltips, item icons). The game keeps running behind it. **Esc**,
 The settings are also on the mod's page in **Options › Mods** (Horizon builds it from the mod's registered
 settings). Settings from 0.3 are carried over on the first start.
 
-**Languages:** the names of the settings (Options › Mods) and of the keys (Options › Controls) follow the game's
-language in English, French, German and Spanish. The menu itself, the HUD and the chat messages are in English for now.
+**Languages:** the whole mod follows the game's language: the menu, the HUD, the chat messages, the settings
+(Options › Mods) and the keys (Options › Controls), in English, French, German and Spanish. Item and block names
+come from the game itself. The commands keep their English words (`/hm load`, `/hm save`...) in every language.
+
+**Translating:** every text is in `hmod/assets/horizonmatica/lang/<language>.json` (the game's language codes, such
+as `it_it.json`), with `en_us.json` as the reference; a language without a file, or a text missing in one, falls back
+to English. Placeholders are the game's: `%s` in order, `%2$s` by position, `%%` for a percent sign.
+`python tools/check_lang.py` checks that every language has every text with the same placeholders.
 
 ### Printer (auto-build)
 

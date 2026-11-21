@@ -4,7 +4,7 @@
 use crate::settings::{self, Mode, Settings};
 use crate::store;
 use crate::world::{Blocks, StateId, World};
-use crate::CREDITS;
+use crate::i18n::{item_name, on_off as on_off_text};
 use horizonmatica_core::formats::Format;
 use horizonmatica_core::materials::{self, Material};
 use horizonmatica_core::printer::{Recent, Stuck};
@@ -220,7 +220,59 @@ fn report(r: Result<Vec<String>, String>) {
                 say(&l);
             }
         }
-        Err(e) => say(&format!("Error: {e}")),
+        Err(e) => say(&tr!("error", e)),
+    }
+}
+
+/// "not in a world", for `ok_or_else`.
+fn no_world() -> String {
+    tr!("err.not_in_world")
+}
+
+/// A placement's move that would leave the world, in words.
+fn outside_world() -> String {
+    use horizonmatica_core::area::{MAX_XZ, MAX_Y, MIN_XZ, MIN_Y};
+    tr!("err.outside_world", MIN_XZ, MAX_XZ, MIN_Y, MAX_Y)
+}
+
+/// A corner where a world has blocks, else the coordinate that is out, in words.
+fn check_corner(c: [i32; 3]) -> Result<[i32; 3], String> {
+    use horizonmatica_core::area::{MAX_XZ, MAX_Y, MIN_XZ, MIN_Y};
+    horizonmatica_core::area::check_corner(c).map_err(|_| {
+        let (lo, hi) = ([MIN_XZ, MIN_Y, MIN_XZ], [MAX_XZ, MAX_Y, MAX_XZ]);
+        let k = (0..3).find(|&k| !(lo[k]..=hi[k]).contains(&c[k])).unwrap_or(0);
+        tr!("err.coordinate_range", ["x", "y", "z"][k], lo[k], hi[k], c[k])
+    })
+}
+
+/// A rotation in words.
+pub fn rotation_text(r: Rotation) -> String {
+    tr!(&format!("rotation.{}", r.name()))
+}
+
+/// A mirror in words.
+pub fn mirror_text(m: Mirror) -> String {
+    tr!(&format!("mirror.{}", m.name()))
+}
+
+/// The layers shown, in words.
+pub fn layer_text(l: LayerMode) -> String {
+    match l {
+        LayerMode::All => tr!("layer.all"),
+        LayerMode::Single(y) => tr!("layer.single", y),
+        LayerMode::Above(y) => tr!("layer.above", y),
+        LayerMode::Below(y) => tr!("layer.below", y),
+        LayerMode::Range(a, b) => tr!("layer.range", a.min(b), a.max(b)),
+    }
+}
+
+/// A schematic file format in words.
+pub fn format_text(f: Format) -> String {
+    match f {
+        Format::Litematic => tr!("format.litematic"),
+        Format::Sponge(v) => tr!("format.sponge", v),
+        Format::Structure => tr!("format.structure"),
+        Format::McEdit => tr!("format.mcedit"),
     }
 }
 
@@ -346,7 +398,7 @@ fn restore_step(w: &World<'_>) {
     }
     let flags = entries.iter().map(|e| e.2).collect();
     let files = entries.into_iter().map(|(file, at, _)| (file, at)).collect();
-    let lines = start_load(w, files, Then::Restore { flags, selected }).unwrap_or_else(|e| vec![format!("Couldn't restore: {e}")]);
+    let lines = start_load(w, files, Then::Restore { flags, selected }).unwrap_or_else(|e| vec![tr!("err.restore", e)]);
     for l in lines {
         say(&l);
     }
@@ -526,7 +578,7 @@ impl LoadJob {
     fn label(&self) -> String {
         match self.files.as_slice() {
             [(f, _)] => f.clone(),
-            many => format!("{} placements", many.len()),
+            many => tr!("chat.n_placements", many.len()),
         }
     }
 }
@@ -550,13 +602,13 @@ fn start_load(w: &World<'_>, files: Vec<(String, At)>, then: Then) -> Result<Vec
         .spawn(move || {
             let _ = tx.send(queries.iter().map(|q| read_file(&dir, q)).collect());
         })
-        .map_err(|e| format!("can't start reading: {e}"))?;
+        .map_err(|e| tr!("err.start_reading", e))?;
     let job = LoadJob { files, then, world: store::world_key(w), started: std::time::Instant::now(), bytes, done };
     match job.done.recv_timeout(LOAD_WAIT) {
         Ok(read) => finish_load(w, job, read),
-        Err(RecvTimeoutError::Disconnected) => Err(format!("reading {} failed", job.label())),
+        Err(RecvTimeoutError::Disconnected) => Err(tr!("err.reading_failed", job.label())),
         Err(RecvTimeoutError::Timeout) => {
-            let line = format!("Loading {} ({}) in the background...", job.label(), human_size(job.bytes));
+            let line = tr!("chat.loading_background", job.label(), human_size(job.bytes));
             with(|s| s.loads.push(job));
             Ok(vec![line])
         }
@@ -576,9 +628,9 @@ fn load_step(w: &World<'_>) {
             }
             Ok(_) if job.world != store::world_key(w) => continue,
             Ok(read) => finish_load(w, job, read),
-            Err(TryRecvError::Disconnected) => Err(format!("reading {} failed", job.label())),
+            Err(TryRecvError::Disconnected) => Err(tr!("err.reading_failed", job.label())),
         };
-        let lines = lines.unwrap_or_else(|e| vec![format!("Error: {e}")]);
+        let lines = lines.unwrap_or_else(|e| vec![tr!("error", e)]);
         if let Some(first) = lines.first() {
             with(|s| s.message = first.clone());
         }
@@ -598,7 +650,7 @@ fn load_lines(s: &State) -> Vec<(String, u32)> {
         .iter()
         .map(|j| {
             let secs = j.started.elapsed().as_secs();
-            (format!("Loading {} ({}) · {secs} s", j.label(), human_size(j.bytes)), 0xFFFF55)
+            (tr!("hud.loading", j.label(), human_size(j.bytes), secs), 0xFFFF55)
         })
         .collect()
 }
@@ -607,7 +659,8 @@ fn finish_load(w: &World<'_>, job: LoadJob, read: Vec<Result<ReadFile, String>>)
     match job.then {
         Then::Load => {
             let (read, at) = first_read(&job.files, read)?;
-            let (slot, mut msg) = place(w, read, at)?;
+            let (slot, tail) = place(w, read, at)?;
+            let mut msg = loaded_line(&slot, false) + &tail;
             let count = with(|s| {
                 s.slots.push(slot);
                 s.selected = s.slots.len() - 1;
@@ -617,17 +670,20 @@ fn finish_load(w: &World<'_>, job: LoadJob, read: Vec<Result<ReadFile, String>>)
             });
             save_placements(w);
             if count > 1 {
-                msg += &format!(" · placement {count} of {count}");
+                msg += &tr!("chat.placement_n_of", count, count);
             }
             if !with(|s| std::mem::replace(&mut s.credited, true)) {
-                say("Horizonmatica is based on Litematica by masa (maruohon) & Sakura-Ryoko and the Litematica Printer by aleksilassila. /hm credits");
+                say(&tr!("chat.credit_note"));
             }
             Ok(vec![msg])
         }
         Then::Reload => {
             let (read, at) = first_read(&job.files, read)?;
-            let (slot, msg) = place(w, read, at)?;
-            let replaced = with(|s| {
+            let (slot, tail) = place(w, read, at)?;
+            let file = slot.placement.file_name.clone();
+            let same = with(|s| s.slots.iter().any(|x| x.placement.file_name == file && x.placement.origin == at.0));
+            let msg = loaded_line(&slot, same) + &tail;
+            with(|s| {
                 let same = s.slots.iter().position(|x| x.placement.file_name == slot.placement.file_name && x.placement.origin == at.0);
                 match same {
                     Some(i) => {
@@ -640,10 +696,9 @@ fn finish_load(w: &World<'_>, job: LoadJob, read: Vec<Result<ReadFile, String>>)
                         s.selected = s.slots.len() - 1;
                     }
                 }
-                same.is_some()
             });
             save_placements(w);
-            Ok(vec![if replaced { msg.replacen("Loaded", "Reloaded", 1) } else { msg }])
+            Ok(vec![msg])
         }
         Then::Restore { flags, selected } => {
             let mut lines = Vec::new();
@@ -653,17 +708,17 @@ fn finish_load(w: &World<'_>, job: LoadJob, read: Vec<Result<ReadFile, String>>)
                     Ok((mut slot, _)) => {
                         slot.shown = shown;
                         slot.locked = locked;
-                        restored.push(format!("{file} at {} {} {}", at.0[0], at.0[1], at.0[2]));
+                        restored.push(tr!("chat.file_at", file, at.0[0], at.0[1], at.0[2]));
                         with(|s| s.slots.push(slot));
                     }
-                    Err(e) => lines.push(format!("Couldn't restore {file}: {e}")),
+                    Err(e) => lines.push(tr!("err.restore_file", file, e)),
                 }
             }
             with(|s| s.selected = selected.min(s.slots.len().saturating_sub(1)));
             match restored.as_slice() {
                 [] => {}
-                [one] => lines.push(format!("Restored {one} (/hm unload removes it)")),
-                many => lines.push(format!("Restored {} placements: {} (/hm placements)", many.len(), many.join(", "))),
+                [one] => lines.push(tr!("chat.restored_one", one)),
+                many => lines.push(tr!("chat.restored_many", many.len(), many.join(", "))),
             }
             Ok(lines)
         }
@@ -671,17 +726,29 @@ fn finish_load(w: &World<'_>, job: LoadJob, read: Vec<Result<ReadFile, String>>)
 }
 
 fn first_read(files: &[(String, At)], read: Vec<Result<ReadFile, String>>) -> Result<(ReadFile, At), String> {
-    let at = files.first().ok_or("no file")?.1;
-    Ok((read.into_iter().next().ok_or("no file")??, at))
+    let at = files.first().ok_or_else(|| tr!("err.no_file"))?.1;
+    Ok((read.into_iter().next().ok_or_else(|| tr!("err.no_file"))??, at))
 }
 
-/// Places a file that was read: a new slot, not yet added, and the line telling what was loaded.
+/// "Loaded house (12x5x9, 1 regions) at …" (or "Reloaded …") for a placement.
+fn loaded_line(slot: &Slot, reloaded: bool) -> String {
+    let p = &slot.placement;
+    let (lo, hi) = p.bounds();
+    let size = [0, 1, 2].map(|i| hi[i] - lo[i] + 1);
+    let (name, regions, o) = (display_name(p), p.schematic.regions.len(), p.origin);
+    if reloaded {
+        tr!("chat.reloaded", name, size[0], size[1], size[2], regions, o[0], o[1], o[2])
+    } else {
+        tr!("chat.loaded", name, size[0], size[1], size[2], regions, o[0], o[1], o[2])
+    }
+}
+
+/// Places a file that was read: a new slot, not yet added, and what `loaded_line` is followed by
+/// (its format, updated states, unknown blocks).
 fn place(w: &World<'_>, read: ReadFile, at: At) -> Result<(Slot, String), String> {
     let ReadFile { file, schematic, format, from_version, upgraded, histograms } = read;
     let (origin, rotation, mirror) = at;
-    let placement = Placement::placed(file, schematic, origin, rotation, mirror)?;
-    let (lo, hi) = placement.bounds();
-    let size = [0, 1, 2].map(|i| hi[i] - lo[i] + 1);
+    let placement = Placement::placed(file, schematic, origin, rotation, mirror).map_err(|_| outside_world())?;
     let (slot, unknown) = with(|s| {
         let totals = count_totals(w, s, &placement, &histograms);
         let mut unknown: Vec<String> = Vec::new();
@@ -693,25 +760,15 @@ fn place(w: &World<'_>, read: ReadFile, at: At) -> Result<(Slot, String), String
         s.next_id += 1;
         (Slot { id: s.next_id, placement, shown: true, locked: false, totals }, unknown)
     });
-    let mut msg = format!(
-        "Loaded {} ({}x{}x{}, {} regions) at {} {} {}",
-        display_name(&slot.placement),
-        size[0],
-        size[1],
-        size[2],
-        slot.placement.schematic.regions.len(),
-        origin[0],
-        origin[1],
-        origin[2]
-    );
+    let mut msg = String::new();
     if format != Format::Litematic {
-        msg.push_str(&format!(" · {}", format.name()));
+        msg.push_str(&format!(" · {}", format_text(format)));
     }
     if upgraded > 0 {
-        msg.push_str(&format!(" · {upgraded} block states updated from data version {from_version}"));
+        msg.push_str(&tr!("chat.upgraded", upgraded, from_version));
     }
     if !unknown.is_empty() {
-        msg += &format!(". Unknown blocks (skipped): {}", unknown.join(", "));
+        msg += &tr!("chat.unknown_blocks", unknown.join(", "));
     }
     Ok((slot, msg))
 }
@@ -719,7 +776,7 @@ fn place(w: &World<'_>, read: ReadFile, at: At) -> Result<(Slot, String), String
 fn load(w: &World<'_>, query: &str, at: Option<At>) -> Result<Vec<String>, String> {
     let at = match at {
         Some(a) => a,
-        None => (w.feet().ok_or("not in a world")?, Rotation::None, Mirror::None),
+        None => (w.feet().ok_or_else(no_world)?, Rotation::None, Mirror::None),
     };
     start_load(w, vec![(query.to_string(), at)], Then::Load)
 }
@@ -764,21 +821,10 @@ pub const WORDS: &[(&str, &[&str], Option<&str>)] = &[
     ("credits", &[], None),
 ];
 
-const HELP: &[&str] = &[
-    "/horizonmatica list | load <name> | unload [all] | reload | folder | info",
-    "/horizonmatica placements | select <n>|next|prev | show [on|off] | hide | lock [on|off] | unlock",
-    "/horizonmatica origin here | origin <x> <y> <z> | move <dx> <dy> <dz> | rotate cw|ccw|180|none | mirror none|x|z",
-    "/horizonmatica pos1|pos2 [here | <x> <y> <z>] (default: the block you look at) | area [clear] | save <name> [overwrite] | save cancel|status",
-    "/horizonmatica tool on|off|<item> | tool mode area|placement: the selection tool (a stick)",
-    "/horizonmatica layer all | <y> | above <y> | below <y> | range <a> <b> | up | down | here",
-    "/horizonmatica render on|off | through on|off | mode ghost|boxes | verify | materials [on|off] | materials copy",
-    "/horizonmatica radius <blocks>|view | faces <n>|none | fluids on|off",
-    "/horizonmatica highlight missing|wrong [on|off] | highlight item <item>|all | highlight off",
-    "/horizonmatica printer on|off | air on|off | speed <ticks> | reach <blocks>",
-    "/horizonmatica easyplace on|off | easyplace every <ticks> | easyplace air on|off: hold right click to place the block the schematic wants",
-    "/horizonmatica credits: who made the original Litematica and its printer",
-    "(/hm works as a short form)",
-];
+/// `/hm help`'s lines (the commands' words stay English; what they do is translated).
+fn help_lines() -> Vec<String> {
+    (1..=13).map(|i| tr!(&format!("help.{i}"))).collect()
+}
 
 /// Runs `/horizonmatica …`; true when the command was ours.
 pub fn command(w: &World<'_>, line: &str) -> bool {
@@ -794,7 +840,7 @@ pub fn command(w: &World<'_>, line: &str) -> bool {
 }
 
 fn int(s: Option<&&str>, what: &str) -> Result<i32, String> {
-    s.ok_or_else(|| format!("missing {what}"))?.parse::<i32>().map_err(|_| format!("{what} must be a number"))
+    s.ok_or_else(|| tr!("err.missing", what))?.parse::<i32>().map_err(|_| tr!("err.not_number", what))
 }
 
 fn on_off(s: Option<&&str>, current: bool) -> Result<bool, String> {
@@ -802,12 +848,12 @@ fn on_off(s: Option<&&str>, current: bool) -> Result<bool, String> {
         None | Some("toggle") => Ok(!current),
         Some("on" | "true" | "1") => Ok(true),
         Some("off" | "false" | "0") => Ok(false),
-        Some(v) => Err(format!("expected on or off, not {v}")),
+        Some(v) => Err(tr!("err.on_off", v)),
     }
 }
 
 fn need_placement(s: &State) -> Result<(), String> {
-    if s.slots.is_empty() { Err("no schematic loaded (/horizonmatica load <name>)".into()) } else { Ok(()) }
+    if s.slots.is_empty() { Err(tr!("err.no_schematic")) } else { Ok(()) }
 }
 
 /// The selected placement, to change it.
@@ -816,15 +862,15 @@ fn selected_mut(s: &mut State) -> Result<&mut Placement, String> {
     if let Some(slot) = s.sel()
         && slot.locked
     {
-        return Err(format!("{} is locked (/hm unlock)", display_name(&slot.placement)));
+        return Err(tr!("err.locked", display_name(&slot.placement)));
     }
-    s.placement_mut().ok_or_else(|| "no placement selected".into())
+    s.placement_mut().ok_or_else(|| tr!("err.no_selected"))
 }
 
 /// A placement by its number in `/hm placements` (from 1), else by (the start of) its name.
 fn find_slot(s: &State, query: &str) -> Result<usize, String> {
     if let Ok(n) = query.parse::<usize>() {
-        return (1..=s.slots.len()).contains(&n).then(|| n - 1).ok_or_else(|| format!("no placement {n} (there are {})", s.slots.len()));
+        return (1..=s.slots.len()).contains(&n).then(|| n - 1).ok_or_else(|| tr!("err.no_placement_n", n, s.slots.len()));
     }
     let q = query.to_lowercase();
     let names: Vec<(usize, String, String)> =
@@ -835,8 +881,8 @@ fn find_slot(s: &State, query: &str) -> Result<usize, String> {
     let hits: Vec<usize> = names.iter().filter(|(_, n, f)| n.starts_with(&q) || f.starts_with(&q)).map(|(i, ..)| *i).collect();
     match hits.as_slice() {
         [one] => Ok(*one),
-        [] => Err(format!("no placement \"{query}\" (/hm placements)")),
-        _ => Err(format!("\"{query}\" matches {} placements: use its number (/hm placements)", hits.len())),
+        [] => Err(tr!("err.no_placement_named", query)),
+        _ => Err(tr!("err.placement_ambiguous", query, hits.len())),
     }
 }
 
@@ -847,21 +893,14 @@ fn placement_lines(s: &State) -> Vec<String> {
         .enumerate()
         .map(|(i, slot)| {
             let p = &slot.placement;
-            format!(
-                "{}{} {} at {} {} {}{}",
-                if i == s.selected { "> " } else { "  " },
-                i + 1,
-                display_name(p),
-                p.origin[0],
-                p.origin[1],
-                p.origin[2],
-                match (slot.shown, slot.locked) {
-                    (true, false) => "",
-                    (false, false) => " (hidden)",
-                    (true, true) => " (locked)",
-                    (false, true) => " (hidden, locked)",
-                }
-            )
+            let flags = match (slot.shown, slot.locked) {
+                (true, false) => String::new(),
+                (false, false) => tr!("chat.flag_hidden"),
+                (true, true) => tr!("chat.flag_locked"),
+                (false, true) => tr!("chat.flag_hidden_locked"),
+            };
+            let line = tr!("chat.placement_line", i + 1, display_name(p), p.origin[0], p.origin[1], p.origin[2]);
+            format!("{}{line}{flags}", if i == s.selected { "> " } else { "  " })
         })
         .collect()
 }
@@ -871,40 +910,36 @@ fn target_block(w: &World<'_>) -> Option<[i32; 3]> {
     w.ray(64.0).map(|(pos, _)| pos).or_else(|| w.feet())
 }
 
-pub fn short(item: &str) -> &str {
-    item.strip_prefix("minecraft:").unwrap_or(item)
-}
-
 pub fn run(w: &World<'_>, args: &[&str]) -> Result<Vec<String>, String> {
     ensure_settings(w);
     let sub = args.first().copied().unwrap_or("help");
     let rest = &args[args.len().min(1)..];
     let changed = |w: &World<'_>| save_placements(w);
     match sub {
-        "help" | "?" => Ok(HELP.iter().map(|s| s.to_string()).collect()),
-        "credits" | "about" => Ok(CREDITS.iter().map(|s| s.to_string()).collect()),
+        "help" | "?" => Ok(help_lines()),
+        "credits" | "about" => Ok(crate::credits()),
         "folder" => {
             let dir = store::schematics_dir(w)?;
             open_folder(&dir);
-            Ok(vec![format!("Schematics folder: {}", dir.display())])
+            Ok(vec![tr!("chat.folder", dir.display())])
         }
         "list" => {
             let dir = store::schematics_dir(w)?;
             let names = horizonmatica_core::list_schematics(&dir);
             if names.is_empty() {
-                return Ok(vec![format!("No schematic files (.litematic, .schem, .schematic, .nbt) in {}", dir.display())]);
+                return Ok(vec![tr!("chat.no_files", dir.display())]);
             }
-            Ok(vec![format!("{} schematics: {}", names.len(), names.join(", "))])
+            Ok(vec![tr!("chat.schematics", names.len(), names.join(", "))])
         }
         "load" => {
             if rest.is_empty() {
-                return Err("usage: /horizonmatica load <name>".into());
+                return Err(tr!("err.usage_load"));
             }
             load(w, &rest.join(" "), None)
         }
         "reload" => {
-            let last = store::read_value(w, "last").ok_or("nothing loaded before")?;
-            let (file, at) = parse_saved(&last).ok_or("the saved placement is unreadable")?;
+            let last = store::read_value(w, "last").ok_or_else(|| tr!("err.nothing_before"))?;
+            let (file, at) = parse_saved(&last).ok_or_else(|| tr!("err.saved_unreadable"))?;
             start_load(w, vec![(file, at)], Then::Reload)
         }
         "unload" | "remove" => {
@@ -914,7 +949,7 @@ pub fn run(w: &World<'_>, args: &[&str]) -> Result<Vec<String>, String> {
                     s.drop_all();
                     n
                 });
-                format!("Unloaded {n} placement{}.", if n == 1 { "" } else { "s" })
+                tr!("chat.unloaded_all", n)
             } else {
                 let (name, left) = with(|s| {
                     need_placement(s)?;
@@ -930,7 +965,7 @@ pub fn run(w: &World<'_>, args: &[&str]) -> Result<Vec<String>, String> {
                     }
                     Ok::<_, String>((display_name(&slot.placement), s.slots.len()))
                 })?;
-                if left == 0 { format!("Unloaded {name}.") } else { format!("Unloaded {name}; {left} left (/hm placements).") }
+                if left == 0 { tr!("chat.unloaded", name) } else { tr!("chat.unloaded_left", name, left) }
             };
             if with(|s| s.slots.is_empty()) {
                 crate::overlay::clear();
@@ -940,7 +975,7 @@ pub fn run(w: &World<'_>, args: &[&str]) -> Result<Vec<String>, String> {
         }
         "placements" | "pl" => with(|s| {
             need_placement(s)?;
-            let mut out = vec![format!("{} placements (> selected):", s.slots.len())];
+            let mut out = vec![tr!("chat.placements_header", s.slots.len())];
             out.extend(placement_lines(s));
             Ok(out)
         }),
@@ -954,8 +989,8 @@ pub fn run(w: &World<'_>, args: &[&str]) -> Result<Vec<String>, String> {
                     Some(_) => find_slot(s, &rest.join(" "))?,
                 };
                 s.moving = false;
-                let p = s.placement().ok_or("no placement")?;
-                Ok::<_, String>(format!("Selected {} of {}: {}", s.selected + 1, n, display_name(p)))
+                let p = s.placement().ok_or_else(|| tr!("err.no_selected"))?;
+                Ok::<_, String>(tr!("chat.selected", s.selected + 1, n, display_name(p)))
             })?;
             save_placements(w);
             Ok(vec![line])
@@ -972,9 +1007,9 @@ pub fn run(w: &World<'_>, args: &[&str]) -> Result<Vec<String>, String> {
                 }
                 let name = display_name(&s.slots[i].placement);
                 Ok::<_, String>(if locked {
-                    format!("{name} locked: it can't be moved, turned or mirrored (/hm unlock)")
+                    tr!("chat.locked", name)
                 } else {
-                    format!("{name} unlocked")
+                    tr!("chat.unlocked", name)
                 })
             })?;
             save_placements(w);
@@ -990,43 +1025,40 @@ pub fn run(w: &World<'_>, args: &[&str]) -> Result<Vec<String>, String> {
                     s.moving = false;
                 }
                 let slot = &s.slots[i];
-                Ok::<_, String>(format!(
-                    "{} {}",
-                    display_name(&slot.placement),
-                    if slot.shown { "shown" } else { "hidden (stays loaded; /hm show brings it back)" }
-                ))
+                let name = display_name(&slot.placement);
+                Ok::<_, String>(if slot.shown { tr!("chat.shown", name) } else { tr!("chat.hidden", name) })
             })?;
             save_placements(w);
             Ok(vec![line])
         }
         "pos1" | "pos2" | "corner1" | "corner2" => {
             let at = match rest.first().copied() {
-                None => target_block(w).ok_or("not in a world")?,
-                Some("here") => w.feet().ok_or("not in a world")?,
+                None => target_block(w).ok_or_else(no_world)?,
+                Some("here") => w.feet().ok_or_else(no_world)?,
                 _ => [int(rest.first(), "x")?, int(rest.get(1), "y")?, int(rest.get(2), "z")?],
             };
-            let at = horizonmatica_core::area::check_corner(at)?;
+            let at = check_corner(at)?;
             let i = usize::from(sub.ends_with('2'));
             let size = with(|s| {
                 s.area[i] = Some(at);
                 s.area_size()
             });
-            let mut line = format!("Corner {} at {} {} {}", i + 1, at[0], at[1], at[2]);
+            let mut line = tr!("chat.corner_at", i + 1, at[0], at[1], at[2]);
             if let Some(d) = size {
-                line += &format!(" · area {} x {} x {} (/hm save <name>)", d[0], d[1], d[2]);
+                line += &tr!("chat.corner_area", d[0], d[1], d[2]);
             }
             Ok(vec![line])
         }
         "area" | "selection" => {
             if matches!(rest.first().copied(), Some("clear" | "none" | "off")) {
                 with(|s| s.area = [None; 2]);
-                return Ok(vec!["Area selection cleared.".into()]);
+                return Ok(vec![tr!("chat.area_cleared")]);
             }
             let (area, size) = with(|s| (s.area, s.area_size()));
-            let corner = |c: Option<[i32; 3]>| c.map_or("not set".to_string(), |c| format!("{} {} {}", c[0], c[1], c[2]));
-            let mut line = format!("Area: corner 1 {}, corner 2 {}", corner(area[0]), corner(area[1]));
+            let corner = |c: Option<[i32; 3]>| c.map_or_else(|| tr!("not_set"), |c| format!("{} {} {}", c[0], c[1], c[2]));
+            let mut line = tr!("chat.area", corner(area[0]), corner(area[1]));
             if let Some(d) = size {
-                line += &format!(" · {} x {} x {} = {} blocks", d[0], d[1], d[2], volume_text(d));
+                line += &tr!("chat.area_volume", d[0], d[1], d[2], volume_text(d));
             }
             Ok(vec![line])
         }
@@ -1040,15 +1072,10 @@ pub fn run(w: &World<'_>, args: &[&str]) -> Result<Vec<String>, String> {
                             Some("area" | "selection") => false,
                             Some("placement" | "placements" | "move") => true,
                             None | Some("toggle") => !st.tool_placement,
-                            Some(v) => return Err(format!("tool mode area or placement, not {v}")),
+                            Some(v) => return Err(tr!("err.tool_mode", v)),
                         };
                         st.tool = true;
-                        return Ok(if st.tool_placement {
-                            "Selection tool: placement mode · left click selects, right click moves it there, Alt+wheel moves, Ctrl+wheel turns"
-                                .into()
-                        } else {
-                            "Selection tool: area mode · left click corner 1, right click corner 2".into()
-                        });
+                        return Ok(if st.tool_placement { tr!("chat.tool_placement_mode") } else { tr!("chat.tool_area_mode") });
                     }
                     Some("on" | "off" | "toggle") => st.tool = on_off(rest.first(), st.tool)?,
                     Some(item) => {
@@ -1058,9 +1085,9 @@ pub fn run(w: &World<'_>, args: &[&str]) -> Result<Vec<String>, String> {
                     }
                 }
                 Ok(if st.tool {
-                    format!("Selection tool ON: {} in hand · left click corner 1, right click corner 2", short(&st.tool_item))
+                    tr!("chat.tool_on", item_name(&st.tool_item))
                 } else {
-                    "Selection tool OFF (/hm pos1 and /hm pos2 still set the corners)".into()
+                    tr!("chat.tool_off")
                 })
             })?;
             save_settings(w);
@@ -1071,68 +1098,68 @@ pub fn run(w: &World<'_>, args: &[&str]) -> Result<Vec<String>, String> {
                 ["cancel" | "stop"] => return Ok(vec![cancel_save()?]),
                 ["status"] => {
                     let lines = with(|s| save_lines(w, s)).map(|(l, _)| l.into_iter().map(|(t, _)| t).collect());
-                    return Ok(lines.unwrap_or_else(|| vec!["No save under way.".into()]));
+                    return Ok(lines.unwrap_or_else(|| vec![tr!("chat.no_save")]));
                 }
                 _ => {}
             }
             let overwrite = rest.last() == Some(&"overwrite") && rest.len() > 1;
             let name = rest[..rest.len() - usize::from(overwrite)].join(" ");
             if name.is_empty() {
-                return Err("usage: /horizonmatica save <name> [overwrite] | save cancel | save status".into());
+                return Err(tr!("err.usage_save"));
             }
             Ok(vec![start_save(w, &name, overwrite)?])
         }
         "info" | "verify" => with(|s| {
             need_placement(s)?;
-            let p = s.placement().ok_or("no placement")?;
+            let p = s.placement().ok_or_else(|| tr!("err.no_selected"))?;
             let (lo, hi) = p.bounds();
-            let mut out = vec![format!(
-                "{} ({} of {}) — origin {} {} {}, rotation {}, mirror {}, box {:?}..{:?}, layer {}",
+            let mut out = vec![tr!(
+                "chat.info",
                 p.file_name,
                 s.selected + 1,
                 s.slots.len(),
                 p.origin[0],
                 p.origin[1],
                 p.origin[2],
-                p.rotation.name(),
-                p.mirror.name(),
-                lo,
-                hi,
-                s.layer.describe()
+                rotation_text(p.rotation),
+                mirror_text(p.mirror),
+                format!("{lo:?}"),
+                format!("{hi:?}"),
+                layer_text(s.layer)
             )];
             match s.tally() {
-                Some(t) => out.push(format!(
-                    "{:.1}% done: {} correct, {} missing, {} wrong block, {} wrong state, {} extra{}",
-                    t.percent(),
+                Some(t) => out.push(tr!(
+                    "chat.tally",
+                    format!("{:.1}", t.percent()),
                     t.correct,
                     t.missing,
                     t.wrong_block,
                     t.wrong_state,
                     t.extra,
-                    if s.unloaded > 0 { format!(" ({} cells in unloaded chunks)", s.unloaded) } else { String::new() }
+                    if s.unloaded > 0 { tr!("chat.tally_unloaded", s.unloaded) } else { String::new() }
                 )),
-                None => out.push("Verifier: still scanning…".into()),
+                None => out.push(tr!("chat.scanning")),
             }
             Ok(out)
         }),
         "origin" => {
             let at = match rest.first().copied() {
-                Some("here") | None => w.feet().ok_or("not in a world")?,
+                Some("here") | None => w.feet().ok_or_else(no_world)?,
                 _ => [int(rest.first(), "x")?, int(rest.get(1), "y")?, int(rest.get(2), "z")?],
             };
-            with(|s| selected_mut(s)?.set_origin(at))?;
+            with(|s| selected_mut(s)?.set_origin(at).map_err(|_| outside_world()))?;
             changed(w);
-            Ok(vec![format!("Origin set to {} {} {}", at[0], at[1], at[2])])
+            Ok(vec![tr!("chat.origin_set", at[0], at[1], at[2])])
         }
         "move" | "nudge" => {
             let d = [int(rest.first(), "dx")?, int(rest.get(1), "dy")?, int(rest.get(2), "dz")?];
             let o = with(|s| {
                 let p = selected_mut(s)?;
-                p.nudge(d)?;
+                p.nudge(d).map_err(|_| outside_world())?;
                 Ok::<_, String>(p.origin)
             })?;
             changed(w);
-            Ok(vec![format!("Origin now {} {} {}", o[0], o[1], o[2])])
+            Ok(vec![tr!("chat.origin_now", o[0], o[1], o[2])])
         }
         "rotate" => {
             let r = with(|s| {
@@ -1140,25 +1167,25 @@ pub fn run(w: &World<'_>, args: &[&str]) -> Result<Vec<String>, String> {
                 let r = match rest.first().copied() {
                     None | Some("cw") => p.rotation.then(Rotation::Clockwise90),
                     Some("ccw") => p.rotation.then(Rotation::CounterClockwise90),
-                    Some(v) => Rotation::parse(v).ok_or("rotate cw, ccw, 180 or none")?,
+                    Some(v) => Rotation::parse(v).ok_or_else(|| tr!("err.rotate"))?,
                 };
-                p.set_rotation(r)?;
+                p.set_rotation(r).map_err(|_| outside_world())?;
                 Ok::<_, String>(r)
             })?;
             changed(w);
-            Ok(vec![format!("Rotation: {}", r.name())])
+            Ok(vec![tr!("chat.rotation", rotation_text(r))])
         }
         "mirror" => {
-            let m = Mirror::parse(rest.first().copied().unwrap_or("none")).ok_or("mirror none, x or z")?;
-            with(|s| selected_mut(s)?.set_mirror(m))?;
+            let m = Mirror::parse(rest.first().copied().unwrap_or("none")).ok_or_else(|| tr!("err.mirror"))?;
+            with(|s| selected_mut(s)?.set_mirror(m).map_err(|_| outside_world()))?;
             changed(w);
-            Ok(vec![format!("Mirror: {}", m.name())])
+            Ok(vec![tr!("chat.mirror", mirror_text(m))])
         }
         "layer" => {
             let feet_y = w.feet().map_or(64, |f| f[1]);
             let l = with(|s| {
                 need_placement(s)?;
-                let base = s.placement().ok_or("no placement")?.bounds().0[1];
+                let base = s.placement().ok_or_else(|| tr!("err.no_selected"))?.bounds().0[1];
                 let current = match s.layer {
                     LayerMode::All => base,
                     LayerMode::Single(y) | LayerMode::Above(y) | LayerMode::Below(y) | LayerMode::Range(y, _) => y,
@@ -1176,12 +1203,12 @@ pub fn run(w: &World<'_>, args: &[&str]) -> Result<Vec<String>, String> {
                     Some("here") => LayerMode::Single(feet_y),
                     Some("above") => LayerMode::Above(rest.get(1).map_or(Ok(current), |_| int(rest.get(1), "y"))?),
                     Some("below") => LayerMode::Below(rest.get(1).map_or(Ok(current), |_| int(rest.get(1), "y"))?),
-                    Some("range") => LayerMode::Range(int(rest.get(1), "min y")?, int(rest.get(2), "max y")?),
+                    Some("range") => LayerMode::Range(int(rest.get(1), &tr!("word.min_y"))?, int(rest.get(2), &tr!("word.max_y"))?),
                     Some(_) => LayerMode::Single(int(rest.first(), "y")?),
                 };
                 Ok::<_, String>(s.layer)
             })?;
-            Ok(vec![format!("Layers: {}", l.describe())])
+            Ok(vec![tr!("chat.layers", layer_text(l))])
         }
         "render" | "mode" | "through" | "xray" | "radius" | "faces" | "fluids" => {
             let view = w.host.graphics_options().render_distance as i32 * 16;
@@ -1192,34 +1219,34 @@ pub fn run(w: &World<'_>, args: &[&str]) -> Result<Vec<String>, String> {
                         match rest.first().copied() {
                             Some("view") => st.radius_view = true,
                             Some(v) => {
-                                st.radius = v.parse::<i32>().map_err(|_| format!("radius in blocks or view, not {v}"))?.max(16);
+                                st.radius = v.parse::<i32>().map_err(|_| tr!("err.radius", v))?.max(16);
                                 st.radius_view = false;
                             }
                             None => {}
                         }
                         if st.radius_view {
-                            format!("Render radius: the view distance ({view} blocks)")
+                            tr!("chat.radius_view", view)
                         } else {
-                            format!("Render radius: {} blocks", st.radius)
+                            tr!("chat.radius", st.radius)
                         }
                     }
                     "faces" => {
                         if let Some(v) = rest.first() {
-                            st.max_faces = settings::parse_faces(v).ok_or_else(|| format!("a number of faces (300k, 2m...) or none, not {v}"))?;
+                            st.max_faces = settings::parse_faces(v).ok_or_else(|| tr!("err.faces", v))?;
                         }
-                        format!("Face limit: {}", settings::faces_text(st.max_faces))
+                        tr!("chat.faces", settings::faces_text(st.max_faces))
                     }
                     "fluids" => {
                         st.hide_fluids = !on_off(rest.first(), !st.hide_fluids)?;
-                        format!("Water and lava {}", if st.hide_fluids { "hidden" } else { "shown" })
+                        if st.hide_fluids { tr!("chat.fluids_hidden") } else { tr!("chat.fluids_shown") }
                     }
                     "render" => {
                         st.render = on_off(rest.first(), st.render)?;
-                        format!("Rendering {}", if st.render { "on" } else { "off" })
+                        tr!("chat.rendering", on_off_text(st.render))
                     }
                     "through" | "xray" => {
                         st.through = on_off(rest.first(), st.through)?;
-                        format!("See through blocks {}", if st.through { "on" } else { "off" })
+                        tr!("chat.through", on_off_text(st.through))
                     }
                     _ => {
                         st.mode = match rest.first().copied() {
@@ -1232,9 +1259,9 @@ pub fn run(w: &World<'_>, args: &[&str]) -> Result<Vec<String>, String> {
                                     Mode::Ghost
                                 }
                             }
-                            Some(v) => return Err(format!("mode ghost or boxes, not {v}")),
+                            Some(v) => return Err(tr!("err.mode", v)),
                         };
-                        format!("Mode: {}", if st.mode == Mode::Ghost { "ghost blocks" } else { "boxes" })
+                        tr!("chat.mode", if st.mode == Mode::Ghost { tr!("setting.mode.ghost") } else { tr!("setting.mode.boxes") })
                     }
                 };
                 Ok::<_, String>(msg)
@@ -1259,7 +1286,7 @@ pub fn run(w: &World<'_>, args: &[&str]) -> Result<Vec<String>, String> {
                         name => {
                             let item = if name.contains(':') { name.to_string() } else { format!("minecraft:{name}") };
                             if !list.iter().any(|m| m.item == item) {
-                                return Err(format!("{name} isn't in the selected schematic's material list"));
+                                return Err(tr!("err.not_in_list", item_name(&item)));
                             }
                             s.highlight_item = Some(item);
                             if !s.settings.highlight_wrong {
@@ -1267,7 +1294,7 @@ pub fn run(w: &World<'_>, args: &[&str]) -> Result<Vec<String>, String> {
                             }
                         }
                     },
-                    Some(v) => return Err(format!("highlight missing, wrong, item or off, not {v}")),
+                    Some(v) => return Err(tr!("err.highlight", v)),
                 }
                 Ok(highlight_text(s))
             })?;
@@ -1280,7 +1307,7 @@ pub fn run(w: &World<'_>, args: &[&str]) -> Result<Vec<String>, String> {
             }
             let line = with(|s| -> Result<String, String> {
                 s.settings.materials_hud = on_off(rest.first(), s.settings.materials_hud)?;
-                Ok(format!("Material list in the HUD: {}", if s.settings.materials_hud { "on" } else { "off" }))
+                Ok(tr!("chat.materials_hud", on_off_text(s.settings.materials_hud)))
             })?;
             save_settings(w);
             Ok(vec![line])
@@ -1290,22 +1317,23 @@ pub fn run(w: &World<'_>, args: &[&str]) -> Result<Vec<String>, String> {
                 let st = &mut s.settings;
                 let msg = match rest.first().copied() {
                     Some("speed") => {
-                        st.printer.interval = int(rest.get(1), "ticks")?.clamp(1, 20) as u32;
-                        format!("Printer: one block every {} ticks", st.printer.interval)
+                        st.printer.interval = int(rest.get(1), &tr!("word.ticks"))?.clamp(1, 20) as u32;
+                        tr!("chat.printer_speed", st.printer.interval)
                     }
                     Some("reach") => {
-                        let r: f64 = rest.get(1).ok_or("missing reach")?.parse().map_err(|_| "reach must be a number")?;
+                        let reach = tr!("word.reach");
+                        let r: f64 = rest.get(1).ok_or_else(|| tr!("err.missing", reach))?.parse().map_err(|_| tr!("err.not_number", reach))?;
                         st.printer.reach = r.clamp(1.0, 6.0);
-                        format!("Printer reach: {:.1}", st.printer.reach)
+                        tr!("chat.printer_reach", format!("{:.1}", st.printer.reach))
                     }
                     Some("air") => {
                         st.printer.air_place = on_off(rest.get(1), st.printer.air_place)?;
-                        format!("Printer air place {}", if st.printer.air_place { "ON — places without a neighbouring block" } else { "OFF" })
+                        if st.printer.air_place { tr!("chat.printer_air_on") } else { tr!("chat.printer_air_off") }
                     }
                     v => {
                         st.printer_on = on_off(v.as_ref(), st.printer_on)?;
                         s.recent.clear();
-                        format!("Printer {}", if s.settings.printer_on { "ON — places missing blocks within reach" } else { "OFF" })
+                        if s.settings.printer_on { tr!("chat.printer_on") } else { tr!("chat.printer_off") }
                     }
                 };
                 Ok::<_, String>(msg)
@@ -1318,19 +1346,16 @@ pub fn run(w: &World<'_>, args: &[&str]) -> Result<Vec<String>, String> {
                 let st = &mut s.settings;
                 let msg = match rest.first().copied() {
                     Some("every") => {
-                        st.easy_interval = int(rest.get(1), "ticks")?.clamp(1, 10) as u32;
-                        format!("Easy place: one block every {} ticks", st.easy_interval)
+                        st.easy_interval = int(rest.get(1), &tr!("word.ticks"))?.clamp(1, 10) as u32;
+                        tr!("chat.easy_speed", st.easy_interval)
                     }
                     Some("air") => {
                         st.easy_air = on_off(rest.get(1), st.easy_air)?;
-                        format!("Easy air place {}", if st.easy_air { "ON — ghost blocks need no neighbouring block" } else { "OFF" })
+                        if st.easy_air { tr!("chat.easy_air_on") } else { tr!("chat.easy_air_off") }
                     }
                     v => {
                         st.easy_place = on_off(v.as_ref(), st.easy_place)?;
-                        format!(
-                            "Easy place {}",
-                            if st.easy_place { "ON — hold right click to place what the schematic wants" } else { "OFF" }
-                        )
+                        if st.easy_place { tr!("chat.easy_on") } else { tr!("chat.easy_off") }
                     }
                 };
                 Ok::<_, String>(msg)
@@ -1338,7 +1363,7 @@ pub fn run(w: &World<'_>, args: &[&str]) -> Result<Vec<String>, String> {
             save_settings(w);
             Ok(vec![msg])
         }
-        other => Err(format!("unknown subcommand {other}; /horizonmatica help")),
+        other => Err(tr!("err.unknown_subcommand", other)),
     }
 }
 
@@ -1403,8 +1428,8 @@ pub fn action(w: &World<'_>, action: &str) {
             return;
         }
         "credits_chat" => {
-            for line in CREDITS {
-                with(|s| s.out.push((*line).to_string()));
+            for line in crate::credits() {
+                with(|s| s.out.push(line));
             }
             return;
         }
@@ -1475,7 +1500,7 @@ pub fn key_clicked(w: &World<'_>, id: &str) {
 
 pub fn toggle_move_mode(w: &World<'_>) {
     if with(|s| !s.moving && s.sel().is_some_and(|x| x.locked)) {
-        say("Move mode: the placement is locked (/hm unlock)");
+        say(&tr!("chat.move_locked"));
         return;
     }
     let on = with(|s| {
@@ -1485,13 +1510,11 @@ pub fn toggle_move_mode(w: &World<'_>) {
         Some(s.moving)
     });
     match on {
-        None => say("Move mode: no schematic loaded"),
-        Some(true) => say(
-            "Move mode ON: wheel = along your view, arrows = horizontal, Page up/down = up/down, R = rotate, Home = to you, Shift = 5 blocks. N or Enter: done",
-        ),
+        None => say(&tr!("chat.move_none")),
+        Some(true) => say(&tr!("chat.move_on")),
         Some(false) => {
             save_placements(w);
-            say("Move mode OFF")
+            say(&tr!("chat.move_off"))
         }
     }
 }
@@ -1567,7 +1590,7 @@ pub fn raw_key(w: &World<'_>, key: &str, modifiers: u32) {
         _ => return,
     };
     if !shift(d.map(|v| v * k)) {
-        say("The placement is locked (/hm unlock)");
+        say(&tr!("chat.placement_locked"));
     }
 }
 
@@ -1586,7 +1609,7 @@ pub fn wheel(w: &World<'_>, steps: f32, modifiers: u32) -> bool {
     let axis = dominant(view_vector(yaw, pitch));
     let k = n.saturating_mul(move_step(modifiers));
     if !shift(axis.map(|v| v.saturating_mul(k))) {
-        say("The placement is locked (/hm unlock)");
+        say(&tr!("chat.placement_locked"));
     }
     true
 }
@@ -1774,7 +1797,7 @@ fn placement_click(w: &World<'_>, b: usize) {
     match looked_placement(w) {
         Some(i) if with(|s| s.selected != i) => report(run(w, &["select", &(i + 1).to_string()]).map(|_| Vec::new())),
         Some(_) => {}
-        None => say("No placement there (look at one's box)"),
+        None => say(&tr!("chat.no_placement_there")),
     }
 }
 
@@ -1792,7 +1815,7 @@ fn placement_wheel(w: &World<'_>, steps: f32, modifiers: u32) -> bool {
     if ctrl {
         for _ in 0..n.unsigned_abs() {
             if let Err(e) = run(w, &["rotate", if n > 0 { "cw" } else { "ccw" }]) {
-                say(&format!("Error: {e}"));
+                say(&tr!("error", e));
                 break;
             }
         }
@@ -1804,7 +1827,7 @@ fn placement_wheel(w: &World<'_>, steps: f32, modifiers: u32) -> bool {
     if shift(axis.map(|v| v.saturating_mul(k))) {
         save_placements(w);
     } else {
-        say("The placement is locked (/hm unlock)");
+        say(&tr!("chat.placement_locked"));
     }
     true
 }
@@ -1868,38 +1891,23 @@ fn tool_lines(s: &State) -> Vec<(String, u32)> {
         let selected = match s.sel() {
             Some(slot) => {
                 let p = &slot.placement;
-                format!(
-                    "Selected: {} at {} {} {} · {}{}",
-                    display_name(p),
-                    p.origin[0],
-                    p.origin[1],
-                    p.origin[2],
-                    p.rotation.name(),
-                    if slot.locked { " · LOCKED" } else { "" }
-                )
+                let locked = if slot.locked { tr!("hud.tool_locked") } else { String::new() };
+                tr!("hud.tool_selected", display_name(p), p.origin[0], p.origin[1], p.origin[2], rotation_text(p.rotation), locked)
             }
-            None => "No placement loaded".into(),
+            None => tr!("hud.tool_none"),
         };
-        return vec![
-            ("Placement tool: left click selects the placement you look at · right click moves it there".into(), 0x55FFFF),
-            (selected, 0xE0E0E0),
-            ("Alt+wheel moves it · Ctrl+wheel turns it · Shift: 5 · Ctrl+middle click: area mode".into(), 0xAAAAAA),
-        ];
+        return vec![(tr!("hud.tool_placement_1"), 0x55FFFF), (selected, 0xE0E0E0), (tr!("hud.tool_placement_2"), 0xAAAAAA)];
     }
-    let c = |i: usize| s.area[i].map_or("not set".to_string(), |c| format!("{} {} {}", c[0], c[1], c[2]));
-    let mut corners = format!("Corner 1: {} · corner 2: {}", c(0), c(1));
+    let c = |i: usize| s.area[i].map_or_else(|| tr!("not_set"), |c| format!("{} {} {}", c[0], c[1], c[2]));
+    let mut corners = tr!("hud.tool_corners", c(0), c(1));
     if let Some(d) = s.area_size() {
         corners += &format!(" · {} x {} x {}", d[0], d[1], d[2]);
     }
     let what = match s.grab {
-        Grab::Box => "the box".to_string(),
-        Grab::Corner(i) => format!("corner {}", i + 1),
+        Grab::Box => tr!("hud.tool_the_box"),
+        Grab::Corner(i) => tr!("hud.tool_corner_n", i + 1),
     };
-    vec![
-        ("Selection tool: left click corner 1 · right click corner 2 · middle click picks a corner".into(), 0xFFFF55),
-        (corners, 0xE0E0E0),
-        (format!("Alt+wheel moves {what} · Ctrl+wheel grows/shrinks where you look · Shift: 5 · Ctrl+middle click: placement mode"), 0xAAAAAA),
-    ]
+    vec![(tr!("hud.tool_area_1"), 0xFFFF55), (corners, 0xE0E0E0), (tr!("hud.tool_area_2", what), 0xAAAAAA)]
 }
 
 // ---------------------------------------------------------------- saving an area
@@ -1947,10 +1955,10 @@ pub fn file_stem(name: &str) -> Result<String, String> {
         .collect();
     let stem = stem.trim_end_matches(['.', ' ']).trim().to_string();
     if stem.is_empty() {
-        return Err("give it a name".into());
+        return Err(tr!("err.name_empty"));
     }
     if stem.chars().count() > 100 {
-        return Err("that name is too long".into());
+        return Err(tr!("err.name_long"));
     }
     Ok(stem)
 }
@@ -1960,19 +1968,19 @@ pub fn file_stem(name: &str) -> Result<String, String> {
 /// entities aren't known to the client this way and aren't saved.
 pub fn start_save(w: &World<'_>, name: &str, overwrite: bool) -> Result<String, String> {
     if let Some(file) = with(|s| s.save.as_ref().map(|j| j.file.clone()).or_else(|| s.save_write.as_ref().map(|w| w.file.clone()))) {
-        return Err(format!("{file} is still being saved (/hm save cancel stops it)"));
+        return Err(tr!("err.still_saving", file));
     }
-    let (lo, hi) = with(|s| s.area_box()).ok_or("set both corners first (the selection tool, or /hm pos1 and /hm pos2)")?;
-    let size = horizonmatica_core::area::size(lo, hi).ok_or("the area is too large to save")?;
+    let (lo, hi) = with(|s| s.area_box()).ok_or_else(|| tr!("err.no_corners"))?;
+    let size = horizonmatica_core::area::size(lo, hi).ok_or_else(|| tr!("err.area_too_large"))?;
     match horizonmatica_core::area::volume(size) {
         Some(volume) if volume <= MAX_SAVE => {}
-        _ => return Err(format!("the area has {} blocks; at most {MAX_SAVE} can be saved at once", volume_text(size))),
+        _ => return Err(tr!("err.area_volume", volume_text(size), MAX_SAVE)),
     }
     let stem = file_stem(name)?;
     let file = format!("{stem}.litematic");
     let path = store::schematics_dir(w)?.join(&file);
     if path.exists() && !overwrite {
-        return Err(format!("{file} exists: /hm save {name} overwrite replaces it"));
+        return Err(tr!("err.file_exists", file, name));
     }
     let pending: std::collections::BTreeSet<(i32, i32)> =
         (lo[0] >> 4..=hi[0] >> 4).flat_map(|cx| (lo[2] >> 4..=hi[2] >> 4).map(move |cz| (cx, cz))).collect();
@@ -1992,13 +2000,7 @@ pub fn start_save(w: &World<'_>, name: &str, overwrite: bool) -> Result<String, 
         world: store::world_key(w),
     };
     with(|s| s.save = Some(job));
-    Ok(format!(
-        "Saving {file}: {} x {} x {} in {total} chunk{} (the HUD shows the progress)",
-        size[0],
-        size[1],
-        size[2],
-        if total == 1 { "" } else { "s" }
-    ))
+    Ok(tr!("chat.saving", file, size[0], size[1], size[2], total))
 }
 
 /// The save's work for this tick: a finished file reported; chunks read while the time lasts;
@@ -2013,7 +2015,7 @@ fn save_step(w: &World<'_>) {
     }
     let Some(mut job) = with(|s| s.save.take()) else { return };
     if job.world != store::world_key(w) {
-        let line = format!("Saving {} stopped: you left the world it is in", job.file);
+        let line = tr!("chat.save_left_world", job.file);
         with(|s| s.message = line.clone());
         say(&line);
         return;
@@ -2111,14 +2113,8 @@ fn finish_save(w: &World<'_>, job: SaveJob) {
             })
         });
         let line = match written {
-            Ok(()) => format!(
-                "Saved {name}: {} x {} x {}, {blocks} blocks, {states} block states ({:.1} s)",
-                size[0],
-                size[1],
-                size[2],
-                started.elapsed().as_secs_f32()
-            ),
-            Err(e) => format!("Error: couldn't write {name}: {e}"),
+            Ok(()) => tr!("chat.saved", name, size[0], size[1], size[2], blocks, states, format!("{:.1}", started.elapsed().as_secs_f32())),
+            Err(e) => tr!("error", tr!("err.write", name, e)),
         };
         let _ = tx.send(line);
     });
@@ -2127,33 +2123,33 @@ fn finish_save(w: &World<'_>, job: SaveJob) {
 
 fn cancel_save() -> Result<String, String> {
     with(|s| match s.save.take() {
-        Some(job) => Ok(format!("Saving {} stopped; nothing was written", job.file)),
-        None if s.save_write.is_some() => Err("the file is being written; that can't be stopped".into()),
-        None => Err("no save under way".into()),
+        Some(job) => Ok(tr!("chat.save_cancelled", job.file)),
+        None if s.save_write.is_some() => Err(tr!("err.writing")),
+        None => Err(tr!("err.no_save")),
     })
 }
 
 /// "north-east" and the like, for a step of `dx`, `dz` (north is -z).
-fn compass(dx: i32, dz: i32) -> &'static str {
-    const NAMES: [&str; 8] = ["east", "south-east", "south", "south-west", "west", "north-west", "north", "north-east"];
+fn compass(dx: i32, dz: i32) -> String {
+    const NAMES: [&str; 8] = ["e", "se", "s", "sw", "w", "nw", "n", "ne"];
     let angle = f64::from(dz).atan2(f64::from(dx)).to_degrees().rem_euclid(360.0);
-    NAMES[((angle + 22.5) / 45.0) as usize % 8]
+    tr!(&format!("compass.{}", NAMES[((angle + 22.5) / 45.0) as usize % 8]))
 }
 
 /// The save's progress: lines for the HUD and `/hm save status`, and how far it is (0 to 1).
 pub fn save_lines(w: &World<'_>, s: &State) -> Option<(Vec<(String, u32)>, f32)> {
     if let Some(sw) = &s.save_write {
-        return Some((vec![(format!("Writing {}…", sw.file), 0xFFAA00)], 1.0));
+        return Some((vec![(tr!("hud.writing", sw.file), 0xFFAA00)], 1.0));
     }
     let job = s.save.as_ref()?;
     let done = job.total - job.pending.len();
-    let mut lines = vec![(format!("Saving {}: {done} of {} chunks", job.file, job.total), 0xFFAA00)];
+    let mut lines = vec![(tr!("hud.saving", job.file, done, job.total), 0xFFAA00)];
     if let Some(&(cx, cz)) = job.unloaded.first() {
         let me = w.feet().unwrap_or(job.lo);
         let (dx, dz) = (cx * 16 + 8 - me[0], cz * 16 + 8 - me[2]);
         let far = f64::from(dx).hypot(f64::from(dz)).round();
         lines.push((
-            format!("{} not loaded · nearest: {far} blocks {} ({} {})", job.unloaded.len(), compass(dx, dz), cx * 16 + 8, cz * 16 + 8),
+            tr!("hud.not_loaded", job.unloaded.len(), far, compass(dx, dz), cx * 16 + 8, cz * 16 + 8),
             0xFFAA00,
         ));
     }
@@ -2235,14 +2231,14 @@ fn scan_step(w: &World<'_>) {
 /// What the highlights show, in words.
 pub fn highlight_text(s: &State) -> String {
     let what = match (s.settings.highlight_missing, s.settings.highlight_wrong) {
-        (false, false) => return "Highlight off".to_string(),
-        (true, false) => "missing",
-        (false, true) => "wrong",
-        (true, true) => "missing and wrong",
+        (false, false) => return tr!("hl.off"),
+        (true, false) => tr!("hl.missing"),
+        (false, true) => tr!("hl.wrong"),
+        (true, true) => tr!("hl.both"),
     };
     match &s.highlight_item {
-        Some(item) => format!("Highlight: {what} blocks, only {}", short(item)),
-        None => format!("Highlight: {what} blocks"),
+        Some(item) => tr!("hl.only", what, item_name(item)),
+        None => tr!("hl.all", what),
     }
 }
 
@@ -2254,28 +2250,21 @@ fn inventory_counts(w: &World<'_>) -> BTreeMap<String, u64> {
     m
 }
 
-/// A material's name as people write it: `oak_planks` → `Oak Planks`.
+/// A material's name in the player's language (the game's own item names).
 pub fn pretty_item(item: &str) -> String {
-    short(item)
-        .split('_')
-        .map(|w| {
-            let mut c = w.chars();
-            c.next().map_or(String::new(), |f| f.to_uppercase().collect::<String>() + c.as_str())
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
+    item_name(item)
 }
 
 /// Puts the selected placement's material list on the clipboard, as a table a spreadsheet takes.
 fn copy_materials(w: &World<'_>) -> Result<Vec<String>, String> {
     let list = material_list(w);
     if list.is_empty() {
-        return Err("no schematic loaded, or it needs no items".into());
+        return Err(tr!("err.no_items"));
     }
-    if !w.host.set_clipboard_text(&materials::table(&list, pretty_item)) {
-        return Err("the clipboard can't be written right now".into());
+    if !w.host.set_clipboard_text(&materials::table(&list, &tr!("materials.table_header"), pretty_item)) {
+        return Err(tr!("err.clipboard"));
     }
-    Ok(vec![format!("Material list copied ({} kinds): paste it into a spreadsheet", list.len())])
+    Ok(vec![tr!("chat.copied", list.len())])
 }
 
 pub fn material_list(w: &World<'_>) -> Vec<Material> {
@@ -2288,15 +2277,15 @@ pub fn material_list(w: &World<'_>) -> Vec<Material> {
 }
 
 pub fn volume_text(size: [i32; 3]) -> String {
-    horizonmatica_core::area::volume(size).map_or_else(|| "too many".to_string(), |v| v.to_string())
+    horizonmatica_core::area::volume(size).map_or_else(|| tr!("too_many"), |v| v.to_string())
 }
 
 pub fn human_size(bytes: u64) -> String {
     match bytes {
-        b if b >= 1 << 30 => format!("{:.1} GB", b as f64 / f64::from(1u32 << 30)),
-        b if b >= 1 << 20 => format!("{:.1} MB", b as f64 / f64::from(1u32 << 20)),
-        b if b >= 1 << 10 => format!("{:.0} KB", b as f64 / 1024.0),
-        b => format!("{b} B"),
+        b if b >= 1 << 30 => tr!("size.gb", format!("{:.1}", b as f64 / f64::from(1u32 << 30))),
+        b if b >= 1 << 20 => tr!("size.mb", format!("{:.1}", b as f64 / f64::from(1u32 << 20))),
+        b if b >= 1 << 10 => tr!("size.kb", format!("{:.0}", b as f64 / 1024.0)),
+        b => tr!("size.b", b),
     }
 }
 
@@ -2308,7 +2297,7 @@ pub fn hud_lines(w: &World<'_>) -> Vec<(String, u32)> {
         let Some(slot) = s.sel() else {
             return match area {
                 Some(d) if s.settings.hud => {
-                    vec![(format!("Horizonmatica area: {} x {} x {} (/hm save <name>)", d[0], d[1], d[2]), 0x55FFFFu32)]
+                    vec![(tr!("hud.area_only", d[0], d[1], d[2]), 0x55FFFFu32)]
                 }
                 _ => Vec::new(),
             };
@@ -2318,33 +2307,31 @@ pub fn hud_lines(w: &World<'_>) -> Vec<(String, u32)> {
             return Vec::new();
         }
         let count = if s.slots.len() > 1 { format!(" ({}/{})", s.selected + 1, s.slots.len()) } else { String::new() };
-        let hidden = if slot.shown { "" } else { " · hidden" };
+        let hidden = if slot.shown { String::new() } else { tr!("hud.hidden") };
         let mut l = vec![(format!("Horizonmatica: {}{count}{hidden}", display_name(p)), 0x55FFFFu32)];
         if s.moving {
-            l.push(("MOVE MODE · wheel/arrows/PgUp/PgDn · R rotate · N done".into(), 0xFFFF55));
+            l.push((tr!("hud.move_mode"), 0xFFFF55));
         }
-        l.push((
-            format!("Origin {} {} {} · {} · mirror {}", p.origin[0], p.origin[1], p.origin[2], p.rotation.name(), p.mirror.name()),
-            0xE0E0E0,
-        ));
-        l.push((format!("Layers: {}{}", s.layer.describe(), if s.settings.render { "" } else { " (hidden)" }), 0xE0E0E0));
+        l.push((tr!("hud.origin", p.origin[0], p.origin[1], p.origin[2], rotation_text(p.rotation), mirror_text(p.mirror)), 0xE0E0E0));
+        let hidden = if s.settings.render { String::new() } else { tr!("hud.render_off") };
+        l.push((tr!("hud.layers", layer_text(s.layer), hidden), 0xE0E0E0));
         match s.tally() {
             Some(t) => {
-                l.push((format!("{:.1}% done · {} missing", t.percent(), t.missing), 0x55FF55));
+                l.push((tr!("hud.done", format!("{:.1}", t.percent()), t.missing), 0x55FF55));
                 if t.wrong_block + t.wrong_state + t.extra > 0 {
-                    l.push((format!("{} wrong block · {} wrong state · {} extra", t.wrong_block, t.wrong_state, t.extra), 0xFFAA00));
+                    l.push((tr!("hud.wrong", t.wrong_block, t.wrong_state, t.extra), 0xFFAA00));
                 }
             }
-            None => l.push(("Verifying…".into(), 0xAAAAAA)),
+            None => l.push((tr!("hud.verifying"), 0xAAAAAA)),
         }
         if s.settings.printer_on {
-            l.push((format!("Printer ON · {} placed", s.placed), 0xFF55FF));
+            l.push((tr!("hud.printer", s.placed), 0xFF55FF));
             if !s.printer_note.is_empty() {
                 l.push((s.printer_note.clone(), 0xAAAAAA));
             }
         }
         if s.settings.easy_place {
-            l.push(("Easy place ON: only the schematic's blocks".to_string(), 0xFF55FF));
+            l.push((tr!("hud.easy_place"), 0xFF55FF));
             if !s.easy_note.is_empty() {
                 l.push((s.easy_note.clone(), 0xAAAAAA));
             }
@@ -2353,7 +2340,7 @@ pub fn hud_lines(w: &World<'_>) -> Vec<(String, u32)> {
             l.push((highlight_text(s), 0x55FFFF));
         }
         if let Some(d) = area {
-            l.push((format!("Area: {} x {} x {}", d[0], d[1], d[2]), 0xE0E0E0));
+            l.push((tr!("hud.area", d[0], d[1], d[2]), 0xE0E0E0));
         }
         l
     });

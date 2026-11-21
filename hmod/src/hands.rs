@@ -6,7 +6,8 @@
 //! wanted is asked of the game's own placement; the mod API has neither, so the game side
 //! (`src/native/game_support.rs`) gives them as `Hands` each tick and on each mouse button.
 
-use crate::runtime::{self, short};
+use crate::i18n::item_name;
+use crate::runtime;
 use crate::world::{StateId, World};
 use horizonmatica_core::verify::{self, Status};
 use horizonmatica_core::{BlockState, materials, printer};
@@ -257,9 +258,9 @@ fn printer_step(h: &mut dyn Hands) {
                     if f.air || f.replaceable || f.fluid {
                         let comes = status_at(h, below).is_some_and(|(_, w)| !w.is_air());
                         waiting = Some(if comes {
-                            format!("{} at {} {} {} waits for the block below", short(&wanted.name), p[0], p[1], p[2])
+                            tr!("printer.waits_below", item_name(&wanted.name), p[0], p[1], p[2])
                         } else {
-                            format!("{} at {} {} {} would fall: nothing below in the schematic", short(&wanted.name), p[0], p[1], p[2])
+                            tr!("printer.would_fall", item_name(&wanted.name), p[0], p[1], p[2])
                         });
                         continue;
                     }
@@ -270,7 +271,7 @@ fn printer_step(h: &mut dyn Hands) {
                     let watched = [p[0] + d[0], p[1] + d[1], p[2] + d[2]];
                     let stuck = runtime::with(|s| s.recent.blocked(watched, now, settings.retry_ticks));
                     if !stuck && status_at(h, watched).is_some_and(|(st, w)| st == Status::Missing && !w.is_air()) {
-                        waiting = Some(format!("observer at {} {} {} waits for what it watches", p[0], p[1], p[2]));
+                        waiting = Some(tr!("printer.observer", p[0], p[1], p[2]));
                         continue;
                     }
                 }
@@ -282,13 +283,7 @@ fn printer_step(h: &mut dyn Hands) {
                         && let Some(axis) = wanted.prop("axis")
                         && has_support(h, eye, reach, p, &BlockState::air())
                     {
-                        pillar = Some(format!(
-                            "{} at {} {} {} only goes against a block on its {axis} side, with that face in view",
-                            short(&wanted.name),
-                            p[0],
-                            p[1],
-                            p[2]
-                        ));
+                        pillar = Some(tr!("printer.axis", item_name(&wanted.name), p[0], p[1], p[2], axis));
                     }
                     continue;
                 }
@@ -323,9 +318,9 @@ fn printer_step(h: &mut dyn Hands) {
 
     let mut note = waiting.or(pillar).unwrap_or_else(|| {
         if unsupported > 0 {
-            format!("{unsupported} block{} wait for a neighbour to click against (air place is off)", if unsupported == 1 { "" } else { "s" })
+            tr!("printer.unsupported", unsupported)
         } else if stuck > 0 {
-            format!("{stuck} block{} can't be placed as wanted from where you stand", if stuck == 1 { "" } else { "s" })
+            tr!("printer.stuck", stuck)
         } else {
             String::new()
         }
@@ -345,7 +340,7 @@ fn printer_step(h: &mut dyn Hands) {
         if let Some(item) = &item
             && let Err(e) = can_take(h, item)
         {
-            note = format!("{}: {e}", short(item));
+            note = format!("{}: {e}", item_name(item));
             runtime::with(|s| s.recent.mark(p, now));
             continue;
         }
@@ -360,13 +355,13 @@ fn printer_step(h: &mut dyn Hands) {
         let Some(click) = click else {
             let key = stuck_key(h, eye, p, &wanted);
             runtime::with(|s| s.stuck.mark(p, key, now));
-            note = format!("no way to place {} at {} {} {} as wanted", short(&wanted.name), p[0], p[1], p[2]);
+            note = tr!("printer.no_way", item_name(&wanted.name), p[0], p[1], p[2]);
             continue;
         };
         if let Some(item) = &item {
             match select(h, item) {
                 Err(e) => {
-                    note = format!("{}: {e}", short(item));
+                    note = format!("{}: {}", item_name(item), hand_error(e));
                     runtime::with(|s| s.recent.mark(p, now));
                     continue;
                 }
@@ -374,20 +369,20 @@ fn printer_step(h: &mut dyn Hands) {
                 // would go out before the slot change and place what was in hand before: the
                 // change goes out this tick, the click the next.
                 Ok(true) if h.remote() => {
-                    runtime::with(|s| s.printer_note = format!("taking {} in hand", short(item)));
+                    runtime::with(|s| s.printer_note = tr!("printer.taking", item_name(item)));
                     return;
                 }
                 Ok(_) => {}
             }
         }
         if let Err(e) = do_click(h, &click) {
-            runtime::with(|s| s.printer_note = format!("click failed: {e}"));
+            runtime::with(|s| s.printer_note = tr!("printer.click_failed", e));
             return;
         }
         let what = match job {
-            Job::Place => format!("placed {}", short(&wanted.name)),
-            Job::Stack => format!("stacked {}", short(&wanted.name)),
-            Job::Adjust(n) => format!("set up {} ({n} click{} left)", short(&wanted.name), if n == 1 { "" } else { "s" }),
+            Job::Place => tr!("printer.placed", item_name(&wanted.name)),
+            Job::Stack => tr!("printer.stacked", item_name(&wanted.name)),
+            Job::Adjust(n) => tr!("printer.adjusted", item_name(&wanted.name), n),
         };
         let remote = h.remote();
         runtime::with(|s| {
@@ -398,7 +393,7 @@ fn printer_step(h: &mut dyn Hands) {
             } else if remote {
                 s.recent.mark(p, now);
             }
-            s.printer_note = format!("{what} at {} {} {}", p[0], p[1], p[2]);
+            s.printer_note = tr!("printer.at", what, p[0], p[1], p[2]);
         });
         mind(|m| m.next_print = now + u64::from(settings.interval.max(1)));
         return;
@@ -473,7 +468,7 @@ fn easy_select(h: &mut dyn Hands) -> bool {
             runtime::with(|s| s.easy_note.clear());
         }
         Err(e) => {
-            runtime::with(|s| s.easy_note = format!("{}: {e}", short(&item)));
+            runtime::with(|s| s.easy_note = format!("{}: {}", item_name(&item), hand_error(e)));
             mind(|m| m.easy_pick = Some((item, now + 20)));
         }
     }
@@ -503,8 +498,9 @@ fn easy_place_click(h: &mut dyn Hands) -> bool {
     let Some(click) = aim_for(h, eye, reach, p, &wanted, &item, air) else {
         // With air place it would go: then nothing but the missing neighbour is in the way.
         let lonely = !air && aim_for(h, eye, reach, p, &wanted, &item, true).is_some();
-        let why = if lonely { ": no block next to it (easy air place is off)" } else { " can't go there as wanted from here" };
-        runtime::with(|s| s.easy_note = format!("{}{why}", short(&wanted.name)));
+        let name = item_name(&wanted.name);
+        let why = if lonely { tr!("easy.lonely", name) } else { tr!("easy.cant", name) };
+        runtime::with(|s| s.easy_note = why);
         return false;
     };
     if do_click(h, &click).is_err() {
@@ -625,7 +621,7 @@ fn pick_wanted(h: &mut dyn Hands) -> bool {
     let Some((.., wanted)) = first_wanted(h, &[]) else { return false };
     let Some(item) = item_for(h, &wanted) else { return false };
     if let Err(e) = h.take_in_hand(&item) {
-        runtime::say(&format!("{}: {e}", short(&item)));
+        runtime::say(&format!("{}: {}", item_name(&item), hand_error(e)));
     }
     true
 }
@@ -651,11 +647,16 @@ fn can_take(h: &dyn Hands, item: &str) -> Result<(), String> {
     if h.creative() || (0..9).any(|i| h.slot_item(i).as_deref() == Some(item)) {
         return Ok(());
     }
-    Err(if (9..36).any(|i| h.slot_item(i).as_deref() == Some(item)) {
-        "in the inventory but not the hotbar".into()
-    } else {
-        "none carried".into()
-    })
+    Err(if (9..36).any(|i| h.slot_item(i).as_deref() == Some(item)) { tr!("hand.not_hotbar") } else { tr!("hand.none") })
+}
+
+/// What the game side (`take_in_hand`, which can't reach the texts) said, in words.
+fn hand_error(e: String) -> String {
+    match e.as_str() {
+        "none carried" => tr!("hand.none"),
+        "the inventory can't be changed right now" => tr!("hand.busy"),
+        _ => e,
+    }
 }
 
 /// Whether the block at `support` can be clicked to place against it. Sneaking lets chests, doors

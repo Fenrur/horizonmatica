@@ -394,7 +394,7 @@ fn rebuild(w: &World<'_>, ops: &dyn GameOps) {
         };
         if mesh(|m| m.quads >= limit && !m.built.contains_key(&k)) {
             runtime::with(|s| {
-                s.printer_note = format!("overlay full ({}): raise the face limit or lower the render radius", crate::settings::faces_text(limit));
+                s.printer_note = crate::tr!("overlay.full", crate::settings::faces_text(limit));
             });
             stop = true;
             if full {

@@ -115,7 +115,7 @@ pub enum Kind {
     Range(f64, f64, f64, f64),
 }
 
-/// Every registered setting: key, English label (also in the lang file), kind.
+/// Every registered setting: key, English label (the lang files' `setting.<key>`), kind.
 pub const SPECS: &[(&str, &str, Kind)] = &[
     ("render", "Rendering", Kind::Toggle(true)),
     ("through", "See through blocks", Kind::Toggle(false)),
@@ -332,8 +332,8 @@ pub fn faces_key(n: usize) -> String {
 
 pub fn faces_text(n: usize) -> String {
     match n {
-        0 => "no limit".into(),
-        n if n >= 1_000_000 => format!("{} M faces", (n as f64 / 1e6 * 10.0).round() / 10.0),
-        n => format!("{}k faces", n / 1_000),
+        0 => crate::tr!("faces.none"),
+        n if n >= 1_000_000 => crate::tr!("faces.m", (n as f64 / 1e6 * 10.0).round() / 10.0),
+        n => crate::tr!("faces.k", n / 1_000),
     }
 }

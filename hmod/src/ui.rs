@@ -304,10 +304,20 @@ impl<'a> Ui<'a> {
         dy
     }
 
-    /// The game's button; true when clicked.
+    /// The game's button; true when clicked. A label too long for it is cut short, the whole of
+    /// it in a tooltip.
     pub fn button(&mut self, r: Rect, label: &str, active: bool) -> bool {
         let hover = self.hovered(r);
-        let _ = self.draw.widget_button(r, &Text::literal(label), active, active && hover);
+        let room = r[2] - 8.0;
+        let shown = if self.text_width(label) > room {
+            if hover {
+                self.tooltip(&[label]);
+            }
+            self.fit(label, room)
+        } else {
+            label.to_string()
+        };
+        let _ = self.draw.widget_button(r, &Text::literal(shown), active, active && hover);
         let clicked = active && self.take_press(r);
         if clicked {
             let _ = self.host.play_local_sound(&mod_api::SoundPlay::ui("minecraft:ui.button.click"), 0);
@@ -394,14 +404,19 @@ impl<'a> Ui<'a> {
 
     /// Tabs across `r`: the current one is shown pressed. The tab clicked, if any.
     pub fn tabs(&mut self, r: Rect, labels: &[&str], current: usize) -> Option<usize> {
+        // Each tab as wide as its label wants, the row stretched (or squeezed) to `r`'s width.
         let n = labels.len().max(1) as f32;
-        let w = ((r[2] - (n - 1.0) * 2.0) / n).floor();
+        let room = r[2] - (n - 1.0) * 2.0;
+        let wants: Vec<f32> = labels.iter().map(|l| self.text_width(l) + 10.0).collect();
+        let total: f32 = wants.iter().sum::<f32>().max(1.0);
         let mut clicked = None;
+        let mut x = r[0];
         for (i, label) in labels.iter().enumerate() {
-            let x = r[0] + i as f32 * (w + 2.0);
+            let w = if i + 1 == labels.len() { r[0] + r[2] - x } else { (wants[i] * room / total).floor() };
             if self.button([x, r[1], w, r[3]], label, i != current) {
                 clicked = Some(i);
             }
+            x += w + 2.0;
         }
         clicked
     }
