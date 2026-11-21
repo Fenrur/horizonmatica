@@ -4739,7 +4739,7 @@ pub(super) fn hud(game: &Game<'_>, batch: &mut HudBatch, corners: &mut Corners) 
         let (x, y) = corners.place(Corner::TopLeft, w, h);
         game.native_fill(batch, [x, y, w, h], 0x9000_0000);
         for (i, (text, rgb)) in lines.iter().enumerate() {
-            game.native_text(batch, text, [x + 4.0, y + 4.0 + i as f32 * 10.0], *rgb, true);
+            game.native_text(batch, text, [x + 4.0, y + 4.0 + i as f32 * 10.0], 0xFF00_0000 | *rgb, true);
         }
     }
     if with(|s| s.settings.materials_hud) && game.native_corner_shown(Corner::TopRight) {
@@ -4751,12 +4751,12 @@ pub(super) fn hud(game: &Game<'_>, batch: &mut HudBatch, corners: &mut Corners) 
         let h = 16.0 + rows.len() as f32 * 13.0;
         let (x, y) = corners.place(Corner::TopRight, w, h);
         game.native_fill(batch, [x, y, w, h], 0x9000_0000);
-        game.native_text(batch, &title, [x + 4.0, y + 4.0], 0x55FFFF, true);
+        game.native_text(batch, &title, [x + 4.0, y + 4.0], 0xFF55_FFFF, true);
         for (i, m) in rows.iter().enumerate() {
             let ry = y + 15.0 + i as f32 * 13.0;
             game.native_item(batch, &m.item, [x + 4.0, ry], 12.0);
             let rgb = if m.to_fetch() == 0 { 0x55FF55 } else { 0xFF5555 };
-            game.native_text(batch, &text(m), [x + 20.0, ry + 2.0], rgb, true);
+            game.native_text(batch, &text(m), [x + 20.0, ry + 2.0], 0xFF00_0000 | rgb, true);
         }
     }
 }

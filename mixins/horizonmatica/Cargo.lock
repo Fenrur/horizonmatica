@@ -57,7 +57,7 @@ dependencies = [
 
 [[package]]
 name = "mod-horizonmatica"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "horizonmatica-core",
  "horizonmatica-menus",
