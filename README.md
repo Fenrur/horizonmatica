@@ -314,6 +314,7 @@ hmod/                          the mod (a .hmod project: horizon-mod.toml, Cargo
                                arrays, rotation/mirroring, verifier, material list, printer planning
   assets/                      the lang file (key and setting names)
 tools/make_icon.py             renders icon.png
+tools/sample-hut/              writes sample_hut.litematic, a small test schematic
 tools/package.py               packs the .hmod (cargo horizon-mod build) and checks it;
                                --sign also signs it with minisign (asks for the key's password)
 docs/wiki/                     the wiki: every tab, button and command
@@ -322,7 +323,7 @@ horizon-registry.toml          the project's page in the Horizon mod registry (r
 ```
 
 Tests: `cargo test -p horizonmatica-core`. A test schematic:
-`cargo run -p horizonmatica-core --example sample -- sample_hut.litematic`. In `hmod/`, `cargo horizon-mod check`
+`cargo run -p sample-hut -- sample_hut.litematic`. In `hmod/`, `cargo horizon-mod check`
 checks the mod against the pinned SDK (it also checks for `wasm32-unknown-unknown`:
 `rustup target add wasm32-unknown-unknown`).
 

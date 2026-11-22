@@ -302,8 +302,6 @@ pub struct Schematic {
     pub regions: Vec<Region>,
 }
 
-/// Upper bound on a file's unpacked size: a region of `MAX_VOLUME` cells at 32 bits each.
-pub const MAX_UNPACKED: usize = 8 << 30;
 /// Upper bound on a region's volume, the same for saving and loading: 2^31 cells, so an index
 /// fits the long array's i32 length at any width (memory is the real limit: a few bits a cell).
 pub const MAX_VOLUME: u64 = 1 << 31;
@@ -331,7 +329,7 @@ pub(crate) fn read_state(tag: &Tag) -> Result<BlockState, String> {
 
 impl Schematic {
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
-        let root = nbt::read_file_bytes(bytes, MAX_UNPACKED)?;
+        let root = nbt::read_file_bytes(bytes)?;
         Self::from_nbt(root)
     }
 
@@ -555,7 +553,7 @@ mod tests {
 
     /// `sample()` written out, with its region's Position and Size replaced, read back.
     fn read_with(position: [i32; 3], size: [i32; 3]) -> Result<Schematic, String> {
-        let mut root = crate::nbt::read_file_bytes(&sample().to_bytes(), MAX_UNPACKED).unwrap();
+        let mut root = crate::nbt::read_file_bytes(&sample().to_bytes()).unwrap();
         let xyz = |v: [i32; 3]| Tag::Compound([("x", v[0]), ("y", v[1]), ("z", v[2])].into_iter().map(|(k, v)| (k.to_string(), Tag::Int(v))).collect());
         let Tag::Compound(top) = &mut root else { panic!() };
         let Some(Tag::Compound(regions)) = top.get_mut("Regions") else { panic!() };

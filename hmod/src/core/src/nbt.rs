@@ -132,7 +132,10 @@ impl<'a> Reader<'a> {
             6 => Tag::Double(f64::from_bits(self.i64()? as u64)),
             7 => {
                 let n = self.len()?;
-                Tag::ByteArray(self.take(n)?.iter().map(|&b| b as i8).collect())
+                let bytes = self.take(n)?;
+                let mut v = vec_for(n)?;
+                v.extend(bytes.iter().map(|&b| b as i8));
+                Tag::ByteArray(v)
             }
             8 => Tag::String(self.string()?),
             9 => {
@@ -158,16 +161,20 @@ impl<'a> Reader<'a> {
             }
             11 => {
                 let n = self.len()?;
-                let bytes = self.take(n * 4)?;
-                Tag::IntArray(bytes.chunks_exact(4).map(|c| i32::from_be_bytes(c.try_into().unwrap())).collect())
+                let bytes = self.take(n.checked_mul(4).ok_or("NBT: array too long")?)?;
+                let mut v = vec_for(n)?;
+                v.extend(bytes.chunks_exact(4).map(|c| i32::from_be_bytes(c.try_into().unwrap())));
+                Tag::IntArray(v)
             }
             12 => {
                 let n = self.len()?;
-                let bytes = self.take(n * 8)?;
+                let bytes = self.take(n.checked_mul(8).ok_or("NBT: array too long")?)?;
                 if self.skip_longs {
                     Tag::LongArray(Vec::new())
                 } else {
-                    Tag::LongArray(bytes.chunks_exact(8).map(|c| i64::from_be_bytes(c.try_into().unwrap())).collect())
+                    let mut v = vec_for(n)?;
+                    v.extend(bytes.chunks_exact(8).map(|c| i64::from_be_bytes(c.try_into().unwrap())));
+                    Tag::LongArray(v)
                 }
             }
             k => return Err(format!("NBT: unknown tag type {k}")),
@@ -191,34 +198,84 @@ fn read_with(data: &[u8], skip_longs: bool) -> R<(String, Tag)> {
     Ok((name, tag))
 }
 
-/// Reads a gzip-compressed (or, failing that, uncompressed) NBT file.
-pub fn read_file_bytes(bytes: &[u8], max_unpacked: usize) -> R<Tag> {
-    read_file_with(bytes, max_unpacked, false)
+/// The error a read gives when the system has no more memory for the file. Nothing else is
+/// lost: what was taken is let go again.
+pub const OUT_OF_MEMORY: &str = "not enough memory";
+
+/// Deflate gives at most this many bytes per byte read (its densest form), so a gzip file's
+/// footer is believed up to this many times the file's size.
+const MAX_RATIO: usize = 1032;
+
+/// Reads a gzip-compressed (or, failing that, uncompressed) NBT file. No size is too large in
+/// itself: the file is unpacked as long as the system gives memory for it, else the read ends
+/// with [`OUT_OF_MEMORY`] (rather than the process).
+pub fn read_file_bytes(bytes: &[u8]) -> R<Tag> {
+    read_file_with(bytes, false)
 }
 
 /// Like `read_file_bytes`, but every long array comes back empty: a large `.litematic`'s
 /// metadata and region sizes without holding its blocks.
-pub fn read_file_bytes_light(bytes: &[u8], max_unpacked: usize) -> R<Tag> {
-    read_file_with(bytes, max_unpacked, true)
+pub fn read_file_bytes_light(bytes: &[u8]) -> R<Tag> {
+    read_file_with(bytes, true)
 }
 
-fn read_file_with(bytes: &[u8], max_unpacked: usize, skip_longs: bool) -> R<Tag> {
+/// What a file of `len` bytes ending in `tail` unpacks to: a gzip file tells it in its footer
+/// (modulo 4 GiB, and a file can claim anything, so it's only an estimate), any other file is
+/// its own size.
+pub fn unpacked_size(head: &[u8], tail: [u8; 4], len: u64) -> u64 {
+    if head.starts_with(&[0x1f, 0x8b]) {
+        u64::from(u32::from_le_bytes(tail)).min(len.saturating_mul(MAX_RATIO as u64))
+    } else {
+        len
+    }
+}
+
+fn read_file_with(bytes: &[u8], skip_longs: bool) -> R<Tag> {
     if bytes.starts_with(&[0x1f, 0x8b]) {
-        use std::io::Read;
-        // gzip ends with the unpacked size (mod 2^32): room for it at once, not by doubling.
-        let hint = bytes.len().checked_sub(4).map_or(0, |at| u32::from_le_bytes(bytes[at..].try_into().unwrap()) as usize);
-        let mut out = Vec::with_capacity(hint.min(max_unpacked));
-        flate2::read::GzDecoder::new(bytes)
-            .take(max_unpacked as u64 + 1)
-            .read_to_end(&mut out)
-            .map_err(|e| format!("gzip: {e}"))?;
-        if out.len() > max_unpacked {
-            return Err("file too large once unpacked".into());
-        }
+        let out = gunzip(bytes)?;
         Ok(read_with(&out, skip_longs)?.1)
     } else {
         Ok(read_with(bytes, skip_longs)?.1)
     }
+}
+
+/// The whole file unpacked, in memory taken only as far as the system gives it.
+fn gunzip(bytes: &[u8]) -> R<Vec<u8>> {
+    use std::io::Read;
+    const STEP: usize = 1 << 20;
+    let mut out = Vec::new();
+    // Room for what the footer says at once, not by doubling (a failed try is no error: the
+    // reading below takes it step by step).
+    let tail = bytes.len().checked_sub(4).map_or([0; 4], |at| bytes[at..].try_into().unwrap());
+    let hint = unpacked_size(bytes, tail, bytes.len() as u64) as usize;
+    let _ = out.try_reserve_exact(hint);
+    let mut gz = flate2::read::GzDecoder::new(bytes);
+    loop {
+        let room = out.capacity() - out.len();
+        if room > 0 {
+            let n = (&mut gz).take(room as u64).read_to_end(&mut out).map_err(|e| format!("gzip: {e}"))?;
+            if n < room {
+                return Ok(out);
+            }
+        }
+        // Full: is there more?
+        let mut probe = [0u8; 1];
+        if gz.read(&mut probe).map_err(|e| format!("gzip: {e}"))? == 0 {
+            return Ok(out);
+        }
+        // More: room again, a large step if there is memory for it, else a small one.
+        if out.try_reserve(STEP).is_err() {
+            out.try_reserve_exact(STEP).map_err(|_| OUT_OF_MEMORY.to_string())?;
+        }
+        out.push(probe[0]);
+    }
+}
+
+/// A vector of `n` items, failing with [`OUT_OF_MEMORY`] where the system has no room.
+fn vec_for<T>(n: usize) -> R<Vec<T>> {
+    let mut v = Vec::new();
+    v.try_reserve_exact(n).map_err(|_| OUT_OF_MEMORY.to_string())?;
+    Ok(v)
 }
 
 // ---- writer (used by tests to build files, and handy for exporting) ----
@@ -317,7 +374,28 @@ mod tests {
         map.insert("list".to_string(), Tag::List(vec![Tag::Short(1), Tag::Short(2)]));
         let tag = Tag::Compound(map);
         let bytes = write_gzip("root", &tag);
-        assert_eq!(read_file_bytes(&bytes, 1 << 20).unwrap(), tag);
+        assert_eq!(read_file_bytes(&bytes).unwrap(), tag);
+    }
+
+    /// A footer that lies is only a wrong hint for the memory taken: the file is unpacked and then
+    /// refused (gzip checks the size), never a crash.
+    #[test]
+    fn footer_is_only_a_hint() {
+        let tag = Tag::Compound(BTreeMap::from([("l".into(), Tag::LongArray((0..300_000).collect()))]));
+        let bytes = write_gzip("", &tag);
+        let at = bytes.len() - 4;
+        let real = u32::from_le_bytes(bytes[at..].try_into().unwrap());
+        assert_eq!(unpacked_size(&bytes, bytes[at..].try_into().unwrap(), bytes.len() as u64), u64::from(real));
+        assert_eq!(gunzip(&bytes).unwrap().len(), real as usize);
+        for claim in [0, 1, real - 1, real + 1, u32::MAX] {
+            let mut lying = bytes.clone();
+            lying[at..].copy_from_slice(&claim.to_le_bytes());
+            let result = gunzip(&lying);
+            assert!(result.as_ref().is_err_and(|e| e != OUT_OF_MEMORY), "claim {claim}: {result:?}");
+        }
+        // Believed only up to deflate's densest ratio; plain NBT is its own size.
+        assert_eq!(unpacked_size(&[0x1f, 0x8b], u32::MAX.to_le_bytes(), 10), 10 * MAX_RATIO as u64);
+        assert_eq!(unpacked_size(&[10, 0], u32::MAX.to_le_bytes(), 10), 10);
     }
 
     #[test]

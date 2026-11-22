@@ -2,5 +2,5 @@
 # The mod itself is `hmod/` (horizon-mod.toml); the launcher builds it against the pinned SDK.
 [workspace]
 resolver = "2"
-members = ["hmod/src/core"]
+members = ["hmod/src/core", "tools/sample-hut"]
 exclude = ["hmod"]

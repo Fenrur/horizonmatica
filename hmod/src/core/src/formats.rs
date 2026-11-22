@@ -13,7 +13,7 @@
 
 use crate::nbt::{self, Tag};
 use crate::bitarray::BitArray;
-use crate::schematic::{BlockState, MAX_UNPACKED, MAX_VOLUME, Metadata, Region, Schematic, read_state, vec3};
+use crate::schematic::{BlockState, MAX_VOLUME, Metadata, Region, Schematic, read_state, vec3};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
@@ -48,7 +48,7 @@ const OLD_STRUCTURE_DATA_VERSION: i64 = 1343;
 
 /// Reads any supported file, telling the format by its contents (not its name).
 pub fn load(bytes: &[u8]) -> Result<(Schematic, Format), String> {
-    let root = nbt::read_file_bytes(bytes, MAX_UNPACKED)?;
+    let root = nbt::read_file_bytes(bytes)?;
     let format = detect(&root).ok_or("not a schematic (unknown format)")?;
     let schematic = match format {
         Format::Litematic => Schematic::from_nbt(root)?,
@@ -78,7 +78,7 @@ pub struct Summary {
 /// Reads what a file is. A `.litematic` tells it in its metadata, so its block arrays are
 /// skipped; other files (and a `.litematic` without a block count) are read in full.
 pub fn summary(bytes: &[u8]) -> Result<Summary, String> {
-    let light = nbt::read_file_bytes_light(bytes, MAX_UNPACKED)?;
+    let light = nbt::read_file_bytes_light(bytes)?;
     if detect(&light) == Some(Format::Litematic) {
         let m = light.get("Metadata");
         let text = |k: &str| m.and_then(|m| m.get(k)).and_then(Tag::str).unwrap_or("").to_string();

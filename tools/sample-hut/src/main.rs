@@ -1,4 +1,4 @@
-//! Writes a small test schematic: `cargo run -p horizonmatica-core --example sample -- house.litematic`
+//! Writes a small test schematic: `cargo run -p sample-hut -- house.litematic`
 //! A 7x5x7 stone-brick hut with oak stairs, a door, a furnace, a chest and a lantern: directional
 //! blocks to check the overlay, the verifier and the printer's facing.
 

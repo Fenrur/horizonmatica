@@ -107,6 +107,8 @@ pub struct State {
     wheel: f32,
     /// Schematic files being read (`start_load`).
     loads: Vec<LoadJob>,
+    /// Files a memory warning was given for, and when: loading them again soon loads them anyway.
+    memory_warned: Option<(Vec<String>, std::time::Instant)>,
     /// The save under way (`/hm save`), and the file its thread is writing.
     pub save: Option<SaveJob>,
     save_write: Option<SaveWrite>,
@@ -544,8 +546,15 @@ struct ReadFile {
 
 fn read_file(dir: &std::path::Path, query: &str) -> Result<ReadFile, String> {
     let file = horizonmatica_core::find_schematic(dir, query)?;
-    let bytes = std::fs::read(dir.join(&file)).map_err(|e| format!("{file}: {e}"))?;
-    let (mut schematic, format) = horizonmatica_core::formats::load(&bytes).map_err(|e| format!("{file}: {e}"))?;
+    let out_of_memory = || tr!("err.out_of_memory", &file);
+    let bytes = std::fs::read(dir.join(&file)).map_err(|e| match e.kind() {
+        std::io::ErrorKind::OutOfMemory => out_of_memory(),
+        _ => format!("{file}: {e}"),
+    })?;
+    let (mut schematic, format) = horizonmatica_core::formats::load(&bytes).map_err(|e| match e.as_str() {
+        horizonmatica_core::nbt::OUT_OF_MEMORY => out_of_memory(),
+        _ => format!("{file}: {e}"),
+    })?;
     drop(bytes);
     let from_version = schematic.data_version;
     let upgraded = crate::fix::upgrade(&mut schematic);
@@ -586,6 +595,38 @@ impl LoadJob {
 /// How long a command waits for its files before they go on loading in the background.
 const LOAD_WAIT: std::time::Duration = std::time::Duration::from_millis(150);
 
+/// How long loading the same files again after a memory warning loads them anyway.
+const WARNED_FOR: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// A warning where the files likely need more memory than the computer has to give, unless the
+/// same files were warned about a moment ago (then they load anyway). Never a limit of its own.
+fn memory_warning(dir: &std::path::Path, queries: &[String]) -> Option<String> {
+    let room = crate::memory::Room::now()?;
+    let names: Vec<String> = queries.iter().filter_map(|q| horizonmatica_core::find_schematic(dir, q).ok()).collect();
+    let need = names.iter().filter_map(|f| crate::memory::need(&dir.join(f))).fold(0u64, u64::saturating_add);
+    if room.fits(need) {
+        return None;
+    }
+    let again = with(|s| match s.memory_warned.take() {
+        Some((warned, at)) if warned == names && at.elapsed() < WARNED_FOR => true,
+        _ => {
+            s.memory_warned = Some((names.clone(), std::time::Instant::now()));
+            false
+        }
+    });
+    if again {
+        return None;
+    }
+    let label = match names.as_slice() {
+        [one] => one.clone(),
+        many => tr!("chat.n_placements", many.len()),
+    };
+    Some(match room {
+        crate::memory::Room::Free(free) => tr!("chat.memory_free", label, human_size(need), human_size(free)),
+        crate::memory::Room::Total(total) => tr!("chat.memory_total", label, human_size(need), human_size(total)),
+    })
+}
+
 fn start_load(w: &World<'_>, files: Vec<(String, At)>, then: Then) -> Result<Vec<String>, String> {
     use std::sync::mpsc::RecvTimeoutError;
     let dir = store::schematics_dir(w)?;
@@ -596,6 +637,12 @@ fn start_load(w: &World<'_>, files: Vec<(String, At)>, then: Then) -> Result<Vec
         .filter_map(|f| std::fs::metadata(dir.join(f)).ok())
         .map(|m| m.len())
         .sum();
+    // Joining a world brings back what was loaded before: no question then.
+    if !matches!(then, Then::Restore { .. })
+        && let Some(warning) = memory_warning(&dir, &queries)
+    {
+        return Ok(vec![warning]);
+    }
     let (tx, done) = std::sync::mpsc::channel();
     std::thread::Builder::new()
         .name("horizonmatica-load".into())

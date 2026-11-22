@@ -279,11 +279,17 @@ impl horizonmatica::hands::Hands for Hands<'_, '_> {
 /// Once a client tick (the `tick_pre` mixin).
 pub fn tick(game: &mut super::Game<'_>) {
     horizonmatica::fix::install(fix_state, horizon_world::DATA_VERSION, legacy_state);
+    horizonmatica::memory::install(total_ram);
     {
         let game = &*game;
         horizonmatica::overlay::tick(game, &Ops(game));
     }
     horizonmatica::hands::tick(&mut Hands(game));
+}
+
+/// The computer's RAM, as the game's debug screen reads it.
+fn total_ram() -> Option<u64> {
+    horizon_threads::process_memory::usage().map(|[_, _, ram]| ram)
 }
 
 /// A mouse button while playing (the `mouse` mixin): whether the mod took it.

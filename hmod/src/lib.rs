@@ -7,6 +7,7 @@ mod i18n;
 mod completion;
 pub mod fix;
 pub mod hands;
+pub mod memory;
 mod menu;
 pub mod overlay;
 mod runtime;
@@ -24,7 +25,7 @@ use mod_api::{
 use world::World;
 
 pub const ID: &str = "horizonmatica";
-pub const VERSION: &str = "0.5.2";
+pub const VERSION: &str = "0.5.3";
 /// The data version of the game the mod is pinned to (26.3), written into saved files.
 pub const DATA_VERSION: i32 = 5023;
 
